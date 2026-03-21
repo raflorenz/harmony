@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 
 // ---------------------------------------------------------------------------
-// Types mirroring the /api/v1/state response
+// Types
 // ---------------------------------------------------------------------------
 
 interface RunningRow {
@@ -26,6 +26,7 @@ interface RetryRow {
 
 interface StateResponse {
   mock_mode?: boolean;
+  auto_dispatch?: boolean;
   generated_at: string;
   counts: { running: number; retrying: number };
   running: RunningRow[];
@@ -38,6 +39,17 @@ interface StateResponse {
   };
   rate_limits: Record<string, unknown> | null;
   error?: { code: string; message: string };
+}
+
+interface AvailableIssue {
+  id: string;
+  identifier: string;
+  title: string;
+  state: string;
+  priority: number | null;
+  labels: string[];
+  url: string | null;
+  created_at: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -60,7 +72,8 @@ function formatTokens(n: number): string {
 
 function relativeTime(iso: string): string {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (diff < 60) return 'just now';
+  if (diff < 5) return 'just now';
+  if (diff < 60) return `${Math.round(diff)}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   return `${Math.floor(diff / 3600)}h ago`;
 }
@@ -83,6 +96,26 @@ function statusColor(status: string): string {
   }
 }
 
+function priorityLabel(p: number | null): string {
+  if (p === null) return '—';
+  const labels: Record<number, string> = { 0: 'None', 1: 'Urgent', 2: 'High', 3: 'Medium', 4: 'Low' };
+  return labels[p] ?? String(p);
+}
+
+function priorityColor(p: number | null): string {
+  if (p === 1) return 'text-red-400';
+  if (p === 2) return 'text-orange-400';
+  if (p === 3) return 'text-yellow-400';
+  return 'text-zinc-500';
+}
+
+function stateColor(state: string): string {
+  const s = state.toLowerCase();
+  if (s === 'in progress') return 'text-blue-400';
+  if (s === 'todo') return 'text-zinc-400';
+  return 'text-zinc-500';
+}
+
 // ---------------------------------------------------------------------------
 // Dashboard Component
 // ---------------------------------------------------------------------------
@@ -90,6 +123,8 @@ function statusColor(status: string): string {
 export function Dashboard() {
   const [data, setData] = useState<StateResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [available, setAvailable] = useState<AvailableIssue[]>([]);
+  const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchState = useCallback(async () => {
@@ -109,26 +144,94 @@ export function Dashboard() {
     }
   }, []);
 
-  // Poll every 5 seconds
+  const fetchAvailable = useCallback(async () => {
+    try {
+      const res = await fetch('/api/v1/available-issues');
+      const json = await res.json();
+      setAvailable(json.issues ?? []);
+    } catch {
+      // silent
+    }
+  }, []);
+
+  // Poll every 3 seconds
   useEffect(() => {
     fetchState();
-    const interval = setInterval(fetchState, 5000);
+    fetchAvailable();
+    const interval = setInterval(() => {
+      fetchState();
+      fetchAvailable();
+    }, 3000);
     return () => clearInterval(interval);
-  }, [fetchState]);
+  }, [fetchState, fetchAvailable]);
+
+  // ---- Actions ----
+
+  const handleStart = async (issueId: string) => {
+    setLoadingAction(`start-${issueId}`);
+    try {
+      await fetch(`/api/v1/issues/${issueId}/start`, { method: 'POST' });
+      await fetchState();
+      await fetchAvailable();
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleStop = async (issueId: string) => {
+    setLoadingAction(`stop-${issueId}`);
+    try {
+      await fetch(`/api/v1/issues/${issueId}/stop`, { method: 'POST' });
+      await fetchState();
+      await fetchAvailable();
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleDelete = async (issueId: string, identifier: string) => {
+    setLoadingAction(`delete-${issueId}`);
+    try {
+      await fetch(`/api/v1/issues/${issueId}/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier }),
+      });
+      await fetchState();
+      await fetchAvailable();
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleAutoDispatch = async (enabled: boolean) => {
+    try {
+      await fetch('/api/v1/auto-dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      await fetchState();
+    } catch {
+      // silent
+    }
+  };
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
       await fetch('/api/v1/refresh', { method: 'POST' });
-      // Wait a moment then re-fetch state
-      setTimeout(() => {
-        fetchState();
+      setTimeout(async () => {
+        await fetchState();
+        await fetchAvailable();
         setRefreshing(false);
       }, 1500);
     } catch {
       setRefreshing(false);
     }
   };
+
+  const autoDispatch = data?.auto_dispatch ?? false;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-mono">
@@ -137,30 +240,39 @@ export function Dashboard() {
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
-            <h1 className="text-xl font-bold tracking-tight">
-              Symphony
-            </h1>
-            <span className="text-xs text-zinc-500 ml-2">
-              Agent Orchestrator
-            </span>
+            <h1 className="text-xl font-bold tracking-tight">Symphony</h1>
+            <span className="text-xs text-zinc-500 ml-1">Agent Orchestrator</span>
             {data?.mock_mode && (
-              <span className="ml-2 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded bg-amber-900/40 text-amber-400 border border-amber-800/50">
-                Mock Mode
+              <span className="ml-1 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded bg-amber-900/40 text-amber-400 border border-amber-800/50">
+                Mock
               </span>
             )}
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             {data && (
               <span className="text-xs text-zinc-500">
-                Updated {relativeTime(data.generated_at)}
+                {relativeTime(data.generated_at)}
               </span>
             )}
+
+            {/* Auto-dispatch toggle */}
+            <button
+              onClick={() => handleAutoDispatch(!autoDispatch)}
+              className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
+                autoDispatch
+                  ? 'bg-green-900/40 border-green-800/50 text-green-400 hover:bg-green-900/60'
+                  : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'
+              }`}
+            >
+              Auto: {autoDispatch ? 'ON' : 'OFF'}
+            </button>
+
             <button
               onClick={handleRefresh}
               disabled={refreshing}
               className="px-3 py-1.5 text-xs rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 transition-colors disabled:opacity-50"
             >
-              {refreshing ? 'Refreshing…' : 'Force Poll'}
+              {refreshing ? 'Polling…' : 'Force Poll'}
             </button>
           </div>
         </div>
@@ -177,30 +289,67 @@ export function Dashboard() {
         {/* Summary cards */}
         {data && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <SummaryCard
-              label="Running"
-              value={String(data.counts.running)}
-              accent="text-green-400"
-            />
-            <SummaryCard
-              label="Retrying"
-              value={String(data.counts.retrying)}
-              accent="text-yellow-400"
-            />
-            <SummaryCard
-              label="Total Tokens"
-              value={formatTokens(data.codex_totals.total_tokens)}
-              accent="text-blue-400"
-            />
-            <SummaryCard
-              label="Runtime"
-              value={formatDuration(data.codex_totals.seconds_running)}
-              accent="text-purple-400"
-            />
+            <SummaryCard label="Running" value={String(data.counts.running)} accent="text-green-400" />
+            <SummaryCard label="Retrying" value={String(data.counts.retrying)} accent="text-yellow-400" />
+            <SummaryCard label="Total Tokens" value={formatTokens(data.codex_totals.total_tokens)} accent="text-blue-400" />
+            <SummaryCard label="Runtime" value={formatDuration(data.codex_totals.seconds_running)} accent="text-purple-400" />
           </div>
         )}
 
-        {/* Running sessions table */}
+        {/* Available issues — ready to start */}
+        {available.length > 0 && (
+          <section>
+            <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-3">
+              Available Issues
+            </h2>
+            <div className="rounded-lg border border-zinc-800 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-zinc-900/50">
+                  <tr className="text-left text-zinc-500">
+                    <th className="px-4 py-2 font-medium">Issue</th>
+                    <th className="px-4 py-2 font-medium">Title</th>
+                    <th className="px-4 py-2 font-medium">State</th>
+                    <th className="px-4 py-2 font-medium">Priority</th>
+                    <th className="px-4 py-2 font-medium text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800/50">
+                  {available.map((issue) => (
+                    <tr key={issue.id} className="hover:bg-zinc-900/30">
+                      <td className="px-4 py-2.5">
+                        <span className="font-semibold text-zinc-200">{issue.identifier}</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-zinc-400 truncate max-w-xs">
+                        {issue.title}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className={`text-xs font-medium ${stateColor(issue.state)}`}>
+                          {issue.state}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className={`text-xs ${priorityColor(issue.priority)}`}>
+                          {priorityLabel(issue.priority)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <button
+                          onClick={() => handleStart(issue.id)}
+                          disabled={loadingAction === `start-${issue.id}`}
+                          className="px-3 py-1 text-xs rounded bg-green-900/40 text-green-400 border border-green-800/50 hover:bg-green-900/60 transition-colors disabled:opacity-50"
+                        >
+                          {loadingAction === `start-${issue.id}` ? '…' : '▶ Start'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {/* Running sessions */}
         {data && data.running.length > 0 && (
           <section>
             <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-3">
@@ -214,28 +363,39 @@ export function Dashboard() {
                     <th className="px-4 py-2 font-medium">Status</th>
                     <th className="px-4 py-2 font-medium">Attempt</th>
                     <th className="px-4 py-2 font-medium">Runtime</th>
-                    <th className="px-4 py-2 font-medium text-right">Tokens</th>
+                    <th className="px-4 py-2 font-medium">Tokens</th>
+                    <th className="px-4 py-2 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800/50">
                   {data.running.map((r) => (
                     <tr key={r.issue_id} className="hover:bg-zinc-900/30">
                       <td className="px-4 py-2.5">
-                        <span className="font-semibold text-zinc-200">
-                          {r.issue_identifier}
-                        </span>
+                        <span className="font-semibold text-zinc-200">{r.issue_identifier}</span>
                       </td>
                       <td className="px-4 py-2.5">
-                        <span className={`font-medium ${statusColor(r.status)}`}>
-                          {r.status}
-                        </span>
+                        <span className={`font-medium ${statusColor(r.status)}`}>{r.status}</span>
                       </td>
                       <td className="px-4 py-2.5 text-zinc-400">{r.attempt}</td>
-                      <td className="px-4 py-2.5 text-zinc-400">
-                        {formatDuration(r.seconds_running)}
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-zinc-400">
-                        {formatTokens(r.tokens.total_tokens)}
+                      <td className="px-4 py-2.5 text-zinc-400">{formatDuration(r.seconds_running)}</td>
+                      <td className="px-4 py-2.5 text-zinc-400">{formatTokens(r.tokens.total_tokens)}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleStop(r.issue_id)}
+                            disabled={loadingAction === `stop-${r.issue_id}`}
+                            className="px-3 py-1 text-xs rounded bg-red-900/30 text-red-400 border border-red-800/50 hover:bg-red-900/50 transition-colors disabled:opacity-50"
+                          >
+                            {loadingAction === `stop-${r.issue_id}` ? '…' : '■ Stop'}
+                          </button>
+                          <button
+                            onClick={() => handleDelete(r.issue_id, r.issue_identifier)}
+                            disabled={loadingAction === `delete-${r.issue_id}`}
+                            className="px-3 py-1 text-xs rounded bg-zinc-800 text-zinc-500 border border-zinc-700 hover:bg-zinc-700 hover:text-red-400 transition-colors disabled:opacity-50"
+                          >
+                            {loadingAction === `delete-${r.issue_id}` ? '…' : '✕ Delete'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -259,22 +419,28 @@ export function Dashboard() {
                     <th className="px-4 py-2 font-medium">Attempt</th>
                     <th className="px-4 py-2 font-medium">Due</th>
                     <th className="px-4 py-2 font-medium">Error</th>
+                    <th className="px-4 py-2 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800/50">
                   {data.retrying.map((r) => (
                     <tr key={r.issue_id} className="hover:bg-zinc-900/30">
                       <td className="px-4 py-2.5">
-                        <span className="font-semibold text-zinc-200">
-                          {r.issue_identifier}
-                        </span>
+                        <span className="font-semibold text-zinc-200">{r.issue_identifier}</span>
                       </td>
                       <td className="px-4 py-2.5 text-zinc-400">{r.attempt}</td>
-                      <td className="px-4 py-2.5 text-zinc-400">
-                        {relativeTime(r.due_at)}
-                      </td>
+                      <td className="px-4 py-2.5 text-zinc-400">{relativeTime(r.due_at)}</td>
                       <td className="px-4 py-2.5 text-red-400/80 truncate max-w-xs">
                         {r.error ?? '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <button
+                          onClick={() => handleDelete(r.issue_id, r.issue_identifier)}
+                          disabled={loadingAction === `delete-${r.issue_id}`}
+                          className="px-3 py-1 text-xs rounded bg-zinc-800 text-zinc-500 border border-zinc-700 hover:bg-zinc-700 hover:text-red-400 transition-colors disabled:opacity-50"
+                        >
+                          {loadingAction === `delete-${r.issue_id}` ? '…' : '✕ Delete'}
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -314,15 +480,12 @@ export function Dashboard() {
         )}
 
         {/* Empty state */}
-        {data && data.counts.running === 0 && data.counts.retrying === 0 && (
+        {data && data.counts.running === 0 && data.counts.retrying === 0 && available.length === 0 && (
           <div className="text-center py-16 text-zinc-500">
             <div className="text-4xl mb-4">🎵</div>
             <p className="text-lg">No active sessions</p>
             <p className="text-sm mt-2">
-              Symphony is polling for eligible issues every{' '}
-              <span className="text-zinc-300">
-                {(data.codex_totals.seconds_running > 0 ? '' : '~')}30s
-              </span>
+              Waiting for issues to appear in the tracker
             </p>
           </div>
         )}

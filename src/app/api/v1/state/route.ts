@@ -28,6 +28,7 @@ export function GET() {
 
   return NextResponse.json({
     mock_mode: isMockMode(),
+    auto_dispatch: scheduler.isAutoDispatch(),
     generated_at: snapshot.generatedAt,
     counts: snapshot.counts,
     running: snapshot.running.map((r) => ({

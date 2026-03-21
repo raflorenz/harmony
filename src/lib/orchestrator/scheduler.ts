@@ -51,6 +51,7 @@ export class Scheduler {
   private agentRunner: AgentRunner;
   private running = false;
   private refreshQueued = false;
+  private autoDispatch = false;
 
   // Map issueId → abort controller so we can cancel running workers
   private workerAborts = new Map<string, AbortController>();
@@ -155,6 +156,97 @@ export class Scheduler {
     this.scheduleTick(0);
   }
 
+  /** Toggle auto-dispatch on/off. */
+  setAutoDispatch(enabled: boolean): void {
+    this.autoDispatch = enabled;
+    logger.info('Auto-dispatch toggled', { auto_dispatch: enabled });
+  }
+
+  /** Whether auto-dispatch is enabled. */
+  isAutoDispatch(): boolean {
+    return this.autoDispatch;
+  }
+
+  /** Get the list of available (dispatchable) issues from the tracker. */
+  async getAvailableIssues(): Promise<Issue[]> {
+    try {
+      const candidates = await this.tracker.fetchCandidateIssues();
+      const sorted = sortForDispatch(candidates);
+      return sorted.filter(issue => shouldDispatch(issue, this.state, this.config));
+    } catch {
+      return [];
+    }
+  }
+
+  /** Manually start a session for a specific issue by ID. Returns true if dispatched. */
+  async manualStart(issueId: string): Promise<boolean> {
+    // If already running or claimed, reject
+    if (this.state.running.has(issueId) || this.state.claimed.has(issueId)) {
+      return false;
+    }
+
+    // Fetch candidates and find the requested issue
+    let candidates: Issue[];
+    try {
+      candidates = await this.tracker.fetchCandidateIssues();
+    } catch {
+      return false;
+    }
+
+    const issue = candidates.find(c => c.id === issueId);
+    if (!issue) return false;
+
+    // Dispatch the issue
+    this.dispatchIssue(issue, null);
+    return true;
+  }
+
+  /** Manually stop a running session for a specific issue by ID. */
+  async manualStop(issueId: string): Promise<boolean> {
+    const entry = this.state.running.get(issueId);
+    if (!entry) return false;
+
+    const log = logger.forIssue(issueId, entry.issueIdentifier);
+    log.info('Manual stop requested');
+
+    // Terminate the worker
+    await this.terminateWorker(issueId, false);
+
+    // Remove from running and claimed, cancel any retry
+    this.state.running.delete(issueId);
+    this.workerAborts.delete(issueId);
+    addRuntimeSeconds(this.state, entry);
+    cancelRetry(this.state, issueId);
+    releaseClaim(this.state, issueId);
+
+    return true;
+  }
+
+  /** Delete a completed/stopped session (remove from completed set and clean workspace). */
+  async deleteSession(issueId: string, identifier: string): Promise<boolean> {
+    // If still running, stop it first
+    if (this.state.running.has(issueId)) {
+      await this.manualStop(issueId);
+    }
+
+    // Cancel any pending retry
+    cancelRetry(this.state, issueId);
+    releaseClaim(this.state, issueId);
+
+    // Remove from completed set
+    this.state.completed.delete(issueId);
+
+    // Clean workspace
+    try {
+      await this.workspace.removeWorkspace(identifier);
+    } catch {
+      // Best effort
+    }
+
+    logger.info('Session deleted', { issue_id: issueId, issue_identifier: identifier });
+    return true;
+  }
+
   // ---- Tick Loop (Section 16.2) -------------------------------------------
 
   private scheduleTick(delayMs: number): void {
@@ -185,24 +277,26 @@ export class Scheduler {
         return;
       }
 
-      // 3. Fetch candidate issues
-      let candidates: Issue[];
-      try {
-        candidates = await this.tracker.fetchCandidateIssues();
-      } catch (err) {
-        logger.error('Candidate fetch failed, skipping dispatch', {
-          error: err instanceof Error ? err.message : String(err),
-        });
-        this.scheduleTick(this.state.pollIntervalMs);
-        return;
-      }
+      // 3. Fetch candidate issues (only when auto-dispatch is enabled)
+      if (this.autoDispatch) {
+        let candidates: Issue[];
+        try {
+          candidates = await this.tracker.fetchCandidateIssues();
+        } catch (err) {
+          logger.error('Candidate fetch failed, skipping dispatch', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          this.scheduleTick(this.state.pollIntervalMs);
+          return;
+        }
 
-      // 4. Sort and dispatch
-      const sorted = sortForDispatch(candidates);
-      for (const issue of sorted) {
-        if (availableSlots(this.state) <= 0) break;
-        if (shouldDispatch(issue, this.state, this.config)) {
-          this.dispatchIssue(issue, null);
+        // 4. Sort and dispatch
+        const sorted = sortForDispatch(candidates);
+        for (const issue of sorted) {
+          if (availableSlots(this.state) <= 0) break;
+          if (shouldDispatch(issue, this.state, this.config)) {
+            this.dispatchIssue(issue, null);
+          }
         }
       }
     } catch (err) {
@@ -325,16 +419,22 @@ export class Scheduler {
       // Bookkeeping
       this.state.completed.add(issueId);
 
-      // Schedule continuation retry (attempt 1, 1s delay) — Section 8.4
-      log.info('Worker exited normally, scheduling continuation check');
-      this.state = scheduleRetry(
-        this.state,
-        issueId,
-        1,
-        { identifier: entry.issueIdentifier, isContinuation: true },
-        this.config.agent.maxRetryBackoffMs,
-        (id) => this.onRetryTimer(id),
-      );
+      if (!this.autoDispatch) {
+        // Manual mode: just mark completed and release claim, no continuation retry
+        log.info('Worker exited normally (manual mode), releasing claim');
+        releaseClaim(this.state, issueId);
+      } else {
+        // Schedule continuation retry (attempt 1, 1s delay) — Section 8.4
+        log.info('Worker exited normally, scheduling continuation check');
+        this.state = scheduleRetry(
+          this.state,
+          issueId,
+          1,
+          { identifier: entry.issueIdentifier, isContinuation: true },
+          this.config.agent.maxRetryBackoffMs,
+          (id) => this.onRetryTimer(id),
+        );
+      }
     } else {
       // Abnormal exit: exponential backoff retry
       const nextAttempt = (entry.attempt ?? 0) + 1;

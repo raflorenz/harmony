@@ -9,13 +9,13 @@ import { runHook } from './hooks';
 
 /** Simulated work phases an agent goes through. */
 const WORK_PHASES = [
-  { label: 'Reading codebase structure', durationMs: 3000, inputTokens: 800, outputTokens: 200 },
-  { label: 'Analyzing issue requirements', durationMs: 2500, inputTokens: 1200, outputTokens: 400 },
-  { label: 'Planning implementation', durationMs: 2000, inputTokens: 600, outputTokens: 800 },
-  { label: 'Writing code changes', durationMs: 5000, inputTokens: 1500, outputTokens: 2000 },
-  { label: 'Running tests', durationMs: 4000, inputTokens: 400, outputTokens: 300 },
-  { label: 'Reviewing changes', durationMs: 2000, inputTokens: 500, outputTokens: 600 },
-  { label: 'Creating commit', durationMs: 1500, inputTokens: 200, outputTokens: 400 },
+  { label: 'Reading codebase structure', durationMs: 8000, inputTokens: 800, outputTokens: 200 },
+  { label: 'Analyzing issue requirements', durationMs: 7000, inputTokens: 1200, outputTokens: 400 },
+  { label: 'Planning implementation', durationMs: 6000, inputTokens: 600, outputTokens: 800 },
+  { label: 'Writing code changes', durationMs: 12000, inputTokens: 1500, outputTokens: 2000 },
+  { label: 'Running tests', durationMs: 10000, inputTokens: 400, outputTokens: 300 },
+  { label: 'Reviewing changes', durationMs: 6000, inputTokens: 500, outputTokens: 600 },
+  { label: 'Creating commit', durationMs: 5000, inputTokens: 200, outputTokens: 400 },
 ];
 
 function delay(ms: number): Promise<void> {
