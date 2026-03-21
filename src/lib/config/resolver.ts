@@ -149,6 +149,9 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
   if (trackerKind === 'linear' && !trackerApiKey) {
     trackerApiKey = process.env.LINEAR_API_KEY ?? '';
   }
+  if (trackerKind === 'github' && !trackerApiKey) {
+    trackerApiKey = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? '';
+  }
 
   // -- workspace root --------------------------------------------------------
   const defaultWorkspaceRoot = path.join(os.tmpdir(), 'symphony_workspaces');
@@ -182,7 +185,11 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
   return {
     tracker: {
       kind: trackerKind || ('linear' as any),
-      endpoint: getStr(rawTracker, 'endpoint', DEFAULTS.tracker.endpoint),
+      endpoint: getStr(
+        rawTracker,
+        'endpoint',
+        trackerKind === 'github' ? 'https://api.github.com' : DEFAULTS.tracker.endpoint,
+      ),
       apiKey: trackerApiKey,
       projectSlug: getStr(rawTracker, 'projectSlug', ''),
       activeStates: getStrArray(rawTracker, 'activeStates', DEFAULTS.tracker.activeStates),
@@ -217,7 +224,7 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
 // validateDispatchConfig (Section 6.3)
 // ---------------------------------------------------------------------------
 
-const SUPPORTED_TRACKER_KINDS: string[] = ['linear'];
+const SUPPORTED_TRACKER_KINDS: string[] = ['linear', 'github'];
 
 /**
  * Validate a resolved ServiceConfig for minimum dispatch readiness.
@@ -242,9 +249,12 @@ export function validateDispatchConfig(config: ServiceConfig): ValidationResult 
     errors.push('tracker.apiKey is required (set LINEAR_API_KEY or provide tracker.apiKey / tracker.api_key)');
   }
 
-  // tracker.projectSlug present when kind=linear
+  // tracker.projectSlug present when kind=linear or kind=github
   if (config.tracker.kind === 'linear' && !config.tracker.projectSlug) {
     errors.push('tracker.projectSlug is required when tracker.kind is "linear"');
+  }
+  if (config.tracker.kind === 'github' && !config.tracker.projectSlug) {
+    errors.push('tracker.projectSlug is required when tracker.kind is "github" (use "owner/repo" format)');
   }
 
   // codex.command present and non-empty

@@ -13,7 +13,9 @@
 import { loadWorkflow, watchWorkflow } from './policy/workflow-loader';
 import { resolveConfig, validateDispatchConfig, type ValidationResult } from './config/resolver';
 import { LinearClient } from './tracker/linear';
+import { GitHubClient } from './tracker/github';
 import { MockTrackerClient } from './tracker/mock';
+import { CompositeTracker } from './tracker/composite';
 import { Scheduler } from './orchestrator/scheduler';
 import type { AgentRunner } from './orchestrator/scheduler';
 import { WorkspaceManagerImpl } from './executor/workspace';
@@ -220,14 +222,23 @@ export async function stopSymphony(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 function createTracker(config: ServiceConfig, mockMode: boolean): TrackerClient {
+  let baseTracker: TrackerClient;
+
   if (mockMode) {
-    return new MockTrackerClient();
+    baseTracker = new MockTrackerClient();
+  } else {
+    switch (config.tracker.kind) {
+      case 'linear':
+        baseTracker = new LinearClient(config.tracker);
+        break;
+      case 'github':
+        baseTracker = new GitHubClient(config.tracker);
+        break;
+      default:
+        throw new Error(`Unsupported tracker kind: ${config.tracker.kind}`);
+    }
   }
 
-  switch (config.tracker.kind) {
-    case 'linear':
-      return new LinearClient(config.tracker);
-    default:
-      throw new Error(`Unsupported tracker kind: ${config.tracker.kind}`);
-  }
+  // Wrap in CompositeTracker to support manually-added issues
+  return new CompositeTracker(baseTracker);
 }

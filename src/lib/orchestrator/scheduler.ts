@@ -247,6 +247,47 @@ export class Scheduler {
     return true;
   }
 
+  /** Add a manually-created issue to the composite tracker. Returns the created issue. */
+  addManualIssue(params: {
+    title: string;
+    description?: string;
+    priority?: number;
+    state?: string;
+    labels?: string[];
+  }): Issue | null {
+    const tracker = this.tracker;
+    if (!('addManualIssue' in tracker)) return null;
+
+    const id = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const identifier = `MAN-${Date.now().toString(36).toUpperCase().slice(-4)}`;
+
+    const issue: Issue = {
+      id,
+      identifier,
+      title: params.title,
+      description: params.description ?? null,
+      priority: params.priority ?? null,
+      state: params.state ?? 'Todo',
+      branchName: null,
+      url: null,
+      labels: (params.labels ?? []).map(l => l.toLowerCase()),
+      blockedBy: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    (tracker as any).addManualIssue(issue);
+    logger.info('Manual issue added', { issue_id: id, issue_identifier: identifier, title: params.title });
+    return issue;
+  }
+
+  /** Remove a manually-created issue. */
+  removeManualIssue(issueId: string): boolean {
+    const tracker = this.tracker;
+    if (!('removeManualIssue' in tracker)) return false;
+    return (tracker as any).removeManualIssue(issueId);
+  }
+
   // ---- Tick Loop (Section 16.2) -------------------------------------------
 
   private scheduleTick(delayMs: number): void {

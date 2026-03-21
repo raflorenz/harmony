@@ -5,7 +5,7 @@
 // ---- Helper / Utility Types -----------------------------------------------
 
 /** Supported issue-tracker backends. */
-export type TrackerKind = "linear";
+export type TrackerKind = "linear" | "github";
 
 /** Errors that can arise when loading or parsing a workflow file. */
 export type WorkflowError =

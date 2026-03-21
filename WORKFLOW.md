@@ -1,8 +1,11 @@
 ---
+# Tracker: use "github" or "linear"
+# GitHub: set GITHUB_TOKEN env var and use "owner/repo" as project_slug
+# Linear: set LINEAR_API_KEY env var and use your project slug
 tracker:
-  kind: linear
-  api_key: $LINEAR_API_KEY
-  project_slug: my-project
+  kind: github
+  api_key: $GITHUB_TOKEN
+  project_slug: owner/repo
   active_states:
     - Todo
     - In Progress
