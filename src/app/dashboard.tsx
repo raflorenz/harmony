@@ -133,6 +133,7 @@ export function Dashboard() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState({ title: '', description: '', priority: '', labels: '' });
   const [addError, setAddError] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [doneItems, setDoneItems] = useState<DoneItem[]>([]);
   const [dragOverColumn, setDragOverColumn] = useState<KanbanColumn | null>(null);
 
@@ -381,13 +382,30 @@ export function Dashboard() {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-3">
+          <div />
+        </div>
+      </header>
+
+      <div className="flex flex-1 overflow-hidden" style={{ height: 'calc(100vh - 57px)' }}>
+        {/* Sidebar toggle */}
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="shrink-0 w-6 flex items-center justify-center border-r border-zinc-800 bg-zinc-900/20 hover:bg-zinc-800/40 transition-colors text-zinc-500 hover:text-zinc-300"
+          title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+        >
+          <span className="text-xs">{sidebarOpen ? '\u25C0' : '\u25B6'}</span>
+        </button>
+
+        {/* Sidebar */}
+        <aside className={`shrink-0 border-r border-zinc-800 bg-zinc-900/30 overflow-y-auto transition-all duration-200 ${sidebarOpen ? 'w-56 p-4 space-y-4' : 'w-0 p-0 overflow-hidden border-r-0'}`}>
+          {/* Controls */}
+          <div className="space-y-2">
             {data && (
-              <span className="text-xs text-zinc-500">{relativeTime(data.generated_at)}</span>
+              <span className="text-[10px] text-zinc-500 block">{relativeTime(data.generated_at)}</span>
             )}
             <button
               onClick={() => handleAutoDispatch(!autoDispatch)}
-              className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
+              className={`w-full px-3 py-1.5 text-xs rounded-md border transition-colors ${
                 autoDispatch
                   ? 'bg-green-900/40 border-green-800/50 text-green-400 hover:bg-green-900/60'
                   : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'
@@ -396,301 +414,309 @@ export function Dashboard() {
               Auto: {autoDispatch ? 'ON' : 'OFF'}
             </button>
             <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="w-full px-3 py-1.5 text-xs rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 transition-colors disabled:opacity-50"
+            >
+              {refreshing ? 'Polling...' : 'Force Poll'}
+            </button>
+          </div>
+
+          {/* Stats */}
+          {data && (
+            <>
+              <div>
+                <h3 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2">Overview</h3>
+                <div className="space-y-2">
+                  <SummaryCard label="Running" value={String(data.counts.running)} accent="text-green-400" />
+                  <SummaryCard label="Retrying" value={String(data.counts.retrying)} accent="text-yellow-400" />
+                  <SummaryCard label="Total Tokens" value={formatTokens(data.codex_totals.total_tokens)} accent="text-blue-400" />
+                  <SummaryCard label="Runtime" value={formatDuration(data.codex_totals.seconds_running)} accent="text-purple-400" />
+                </div>
+              </div>
+
+              {/* Token breakdown */}
+              {data.codex_totals.total_tokens > 0 && (
+                <div>
+                  <h3 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2">Token Usage</h3>
+                  <div className="space-y-2">
+                    <div className="rounded-lg border border-zinc-800 px-3 py-2">
+                      <div className="text-[10px] text-zinc-500 mb-0.5">Input</div>
+                      <div className="text-sm font-semibold text-blue-400">
+                        {formatTokens(data.codex_totals.input_tokens)}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-zinc-800 px-3 py-2">
+                      <div className="text-[10px] text-zinc-500 mb-0.5">Output</div>
+                      <div className="text-sm font-semibold text-emerald-400">
+                        {formatTokens(data.codex_totals.output_tokens)}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-zinc-800 px-3 py-2">
+                      <div className="text-[10px] text-zinc-500 mb-0.5">Total</div>
+                      <div className="text-sm font-semibold text-purple-400">
+                        {formatTokens(data.codex_totals.total_tokens)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </aside>
+
+        {/* Main content */}
+        <main className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Error state */}
+          {error && (
+            <div className="rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-3 text-red-400 text-sm">
+              {error}
+            </div>
+          )}
+
+          {/* Add Issue button */}
+          <div className="flex justify-end">
+            <button
               onClick={() => setShowAddForm(!showAddForm)}
               className="px-3 py-1.5 text-xs rounded-md bg-indigo-900/40 text-indigo-400 border border-indigo-800/50 hover:bg-indigo-900/60 transition-colors"
             >
               {showAddForm ? 'Cancel' : '+ Add Issue'}
             </button>
-            <button
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="px-3 py-1.5 text-xs rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 transition-colors disabled:opacity-50"
-            >
-              {refreshing ? 'Polling...' : 'Force Poll'}
-            </button>
           </div>
-        </div>
-      </header>
 
-      <main className="max-w-[1600px] mx-auto px-6 py-6 space-y-6">
-        {/* Error state */}
-        {error && (
-          <div className="rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-3 text-red-400 text-sm">
-            {error}
-          </div>
-        )}
-
-        {/* Summary cards */}
-        {data && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <SummaryCard label="Running" value={String(data.counts.running)} accent="text-green-400" />
-            <SummaryCard label="Retrying" value={String(data.counts.retrying)} accent="text-yellow-400" />
-            <SummaryCard label="Total Tokens" value={formatTokens(data.codex_totals.total_tokens)} accent="text-blue-400" />
-            <SummaryCard label="Runtime" value={formatDuration(data.codex_totals.seconds_running)} accent="text-purple-400" />
-          </div>
-        )}
-
-        {/* Add Issue form */}
-        {showAddForm && (
-          <div className="rounded-lg border border-indigo-800/40 bg-indigo-950/20 p-4 space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-zinc-500 mb-1">Title *</label>
-                <input
-                  type="text"
-                  value={addForm.title}
-                  onChange={(e) => setAddForm({ ...addForm, title: e.target.value })}
-                  placeholder="e.g. Fix login timeout on mobile"
-                  className="w-full px-3 py-2 text-sm rounded-md bg-zinc-900 border border-zinc-700 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-600"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
+          {/* Add Issue form */}
+          {showAddForm && (
+            <div className="rounded-lg border border-indigo-800/40 bg-indigo-950/20 p-4 space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-zinc-500 mb-1">Priority</label>
-                  <select
-                    value={addForm.priority}
-                    onChange={(e) => setAddForm({ ...addForm, priority: e.target.value })}
-                    className="w-full px-3 py-2 text-sm rounded-md bg-zinc-900 border border-zinc-700 text-zinc-100 focus:outline-none focus:border-indigo-600"
-                  >
-                    <option value="">None</option>
-                    <option value="1">Urgent</option>
-                    <option value="2">High</option>
-                    <option value="3">Medium</option>
-                    <option value="4">Low</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-zinc-500 mb-1">Labels (comma-sep)</label>
+                  <label className="block text-xs text-zinc-500 mb-1">Title *</label>
                   <input
                     type="text"
-                    value={addForm.labels}
-                    onChange={(e) => setAddForm({ ...addForm, labels: e.target.value })}
-                    placeholder="bug, frontend"
+                    value={addForm.title}
+                    onChange={(e) => setAddForm({ ...addForm, title: e.target.value })}
+                    placeholder="e.g. Fix login timeout on mobile"
                     className="w-full px-3 py-2 text-sm rounded-md bg-zinc-900 border border-zinc-700 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-600"
                   />
                 </div>
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs text-zinc-500 mb-1">Description</label>
-              <textarea
-                value={addForm.description}
-                onChange={(e) => setAddForm({ ...addForm, description: e.target.value })}
-                placeholder="Describe the issue in detail..."
-                rows={2}
-                className="w-full px-3 py-2 text-sm rounded-md bg-zinc-900 border border-zinc-700 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-600 resize-none"
-              />
-            </div>
-            {addError && (
-              <div className="text-xs text-red-400">{addError}</div>
-            )}
-            <div className="flex justify-end">
-              <button
-                onClick={handleAddIssue}
-                disabled={loadingAction === 'add-issue'}
-                className="px-4 py-2 text-xs rounded-md bg-indigo-700 text-white hover:bg-indigo-600 transition-colors disabled:opacity-50"
-              >
-                {loadingAction === 'add-issue' ? 'Adding...' : 'Add Issue'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Kanban Board */}
-        <div className="grid grid-cols-4 gap-4" style={{ minHeight: '60vh' }}>
-          {columnConfig.map((col) => (
-            <div
-              key={col.key}
-              className={`flex flex-col rounded-lg border bg-zinc-900/20 transition-colors ${
-                dragOverColumn === col.key
-                  ? 'border-indigo-500/60 bg-indigo-950/10'
-                  : 'border-zinc-800'
-              }`}
-              onDragOver={(e) => handleDragOver(e, col.key)}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, col.key)}
-            >
-              {/* Column Header */}
-              <div className={`px-4 py-3 border-b-2 ${col.accent} bg-zinc-900/40 rounded-t-lg`}>
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-zinc-200">{col.label}</h3>
-                  <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded-full">
-                    {col.count}
-                  </span>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-1">Priority</label>
+                    <select
+                      value={addForm.priority}
+                      onChange={(e) => setAddForm({ ...addForm, priority: e.target.value })}
+                      className="w-full px-3 py-2 text-sm rounded-md bg-zinc-900 border border-zinc-700 text-zinc-100 focus:outline-none focus:border-indigo-600"
+                    >
+                      <option value="">None</option>
+                      <option value="1">Urgent</option>
+                      <option value="2">High</option>
+                      <option value="3">Medium</option>
+                      <option value="4">Low</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-1">Labels (comma-sep)</label>
+                    <input
+                      type="text"
+                      value={addForm.labels}
+                      onChange={(e) => setAddForm({ ...addForm, labels: e.target.value })}
+                      placeholder="bug, frontend"
+                      className="w-full px-3 py-2 text-sm rounded-md bg-zinc-900 border border-zinc-700 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-600"
+                    />
+                  </div>
                 </div>
               </div>
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">Description</label>
+                <textarea
+                  value={addForm.description}
+                  onChange={(e) => setAddForm({ ...addForm, description: e.target.value })}
+                  placeholder="Describe the issue in detail..."
+                  rows={2}
+                  className="w-full px-3 py-2 text-sm rounded-md bg-zinc-900 border border-zinc-700 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-600 resize-none"
+                />
+              </div>
+              {addError && (
+                <div className="text-xs text-red-400">{addError}</div>
+              )}
+              <div className="flex justify-end">
+                <button
+                  onClick={handleAddIssue}
+                  disabled={loadingAction === 'add-issue'}
+                  className="px-4 py-2 text-xs rounded-md bg-indigo-700 text-white hover:bg-indigo-600 transition-colors disabled:opacity-50"
+                >
+                  {loadingAction === 'add-issue' ? 'Adding...' : 'Add Issue'}
+                </button>
+              </div>
+            </div>
+          )}
 
-              {/* Column Body */}
-              <div className="flex-1 p-3 space-y-2 overflow-y-auto" style={{ maxHeight: 'calc(60vh - 48px)' }}>
-                {/* To Do cards */}
-                {col.key === 'todo' && available.map((issue) => {
-                  const src = sourceTag(issue.id);
-                  return (
+          {/* Kanban Board */}
+          <div className="grid grid-cols-4 gap-4 flex-1" style={{ minHeight: 'calc(100vh - 180px)' }}>
+            {columnConfig.map((col) => (
+              <div
+                key={col.key}
+                className={`flex flex-col rounded-lg border bg-zinc-900/20 transition-colors ${
+                  dragOverColumn === col.key
+                    ? 'border-indigo-500/60 bg-indigo-950/10'
+                    : 'border-zinc-800'
+                }`}
+                onDragOver={(e) => handleDragOver(e, col.key)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, col.key)}
+              >
+                {/* Column Header */}
+                <div className={`px-4 py-3 border-b-2 ${col.accent} bg-zinc-900/40 rounded-t-lg`}>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-zinc-200">{col.label}</h3>
+                    <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded-full">
+                      {col.count}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Column Body */}
+                <div className="flex-1 p-3 space-y-2 overflow-y-auto">
+                  {/* To Do cards */}
+                  {col.key === 'todo' && available.map((issue) => {
+                    const src = sourceTag(issue.id);
+                    return (
+                      <div
+                        key={issue.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, issue.id, 'todo')}
+                        className="rounded-lg border border-zinc-700/50 bg-zinc-900/60 p-3 cursor-grab active:cursor-grabbing hover:border-zinc-600 transition-colors group"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold text-zinc-300">{issue.identifier}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded border ${src.cls}`}>
+                            {src.label}
+                          </span>
+                        </div>
+                        <p className="text-xs text-zinc-400 leading-relaxed line-clamp-2 mb-2">{issue.title}</p>
+                        <div className="flex items-center justify-between">
+                          <span className={`text-[10px] ${priorityColor(issue.priority)}`}>
+                            {priorityLabel(issue.priority)}
+                          </span>
+                          <button
+                            onClick={() => handleStart(issue.id)}
+                            disabled={loadingAction === `start-${issue.id}`}
+                            className="px-2 py-0.5 text-[10px] rounded bg-green-900/40 text-green-400 border border-green-800/50 hover:bg-green-900/60 transition-colors disabled:opacity-50 opacity-0 group-hover:opacity-100"
+                          >
+                            {loadingAction === `start-${issue.id}` ? '...' : 'Start'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {col.key === 'todo' && available.length === 0 && (
+                    <div className="text-center py-8 text-zinc-600 text-xs">
+                      No issues available
+                    </div>
+                  )}
+
+                  {/* In Progress cards */}
+                  {col.key === 'in-progress' && data?.running.map((r) => (
                     <div
-                      key={issue.id}
+                      key={r.issue_id}
                       draggable
-                      onDragStart={(e) => handleDragStart(e, issue.id, 'todo')}
+                      onDragStart={(e) => handleDragStart(e, r.issue_id, 'in-progress')}
                       className="rounded-lg border border-zinc-700/50 bg-zinc-900/60 p-3 cursor-grab active:cursor-grabbing hover:border-zinc-600 transition-colors group"
                     >
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold text-zinc-300">{issue.identifier}</span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded border ${src.cls}`}>
-                          {src.label}
-                        </span>
+                        <span className="text-xs font-semibold text-zinc-300">{r.issue_identifier}</span>
+                        <span className={`text-[10px] font-medium ${statusColor(r.status)}`}>{r.status}</span>
                       </div>
-                      <p className="text-xs text-zinc-400 leading-relaxed line-clamp-2 mb-2">{issue.title}</p>
-                      <div className="flex items-center justify-between">
-                        <span className={`text-[10px] ${priorityColor(issue.priority)}`}>
-                          {priorityLabel(issue.priority)}
-                        </span>
+                      <div className="flex items-center gap-3 text-[10px] text-zinc-500 mb-2">
+                        <span>Attempt {r.attempt}</span>
+                        <span>{formatDuration(r.seconds_running)}</span>
+                        <span>{formatTokens(r.tokens.total_tokens)} tokens</span>
+                      </div>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
-                          onClick={() => handleStart(issue.id)}
-                          disabled={loadingAction === `start-${issue.id}`}
-                          className="px-2 py-0.5 text-[10px] rounded bg-green-900/40 text-green-400 border border-green-800/50 hover:bg-green-900/60 transition-colors disabled:opacity-50 opacity-0 group-hover:opacity-100"
+                          onClick={() => handleStop(r.issue_id)}
+                          disabled={loadingAction === `stop-${r.issue_id}`}
+                          className="px-2 py-0.5 text-[10px] rounded bg-red-900/30 text-red-400 border border-red-800/50 hover:bg-red-900/50 transition-colors disabled:opacity-50"
                         >
-                          {loadingAction === `start-${issue.id}` ? '...' : 'Start'}
+                          {loadingAction === `stop-${r.issue_id}` ? '...' : 'Stop'}
+                        </button>
+                        <button
+                          onClick={() => handleDelete(r.issue_id, r.issue_identifier)}
+                          disabled={loadingAction === `delete-${r.issue_id}`}
+                          className="px-2 py-0.5 text-[10px] rounded bg-zinc-800 text-zinc-500 border border-zinc-700 hover:bg-zinc-700 hover:text-red-400 transition-colors disabled:opacity-50"
+                        >
+                          {loadingAction === `delete-${r.issue_id}` ? '...' : 'Delete'}
                         </button>
                       </div>
                     </div>
-                  );
-                })}
-                {col.key === 'todo' && available.length === 0 && (
-                  <div className="text-center py-8 text-zinc-600 text-xs">
-                    No issues available
-                  </div>
-                )}
+                  ))}
+                  {col.key === 'in-progress' && (!data || data.running.length === 0) && (
+                    <div className="text-center py-8 text-zinc-600 text-xs">
+                      {available.length > 0 ? 'Drag a task here to start' : 'No running sessions'}
+                    </div>
+                  )}
 
-                {/* In Progress cards */}
-                {col.key === 'in-progress' && data?.running.map((r) => (
-                  <div
-                    key={r.issue_id}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, r.issue_id, 'in-progress')}
-                    className="rounded-lg border border-zinc-700/50 bg-zinc-900/60 p-3 cursor-grab active:cursor-grabbing hover:border-zinc-600 transition-colors group"
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-semibold text-zinc-300">{r.issue_identifier}</span>
-                      <span className={`text-[10px] font-medium ${statusColor(r.status)}`}>{r.status}</span>
+                  {/* Review cards */}
+                  {col.key === 'review' && data?.retrying.map((r) => (
+                    <div
+                      key={r.issue_id}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, r.issue_id, 'review')}
+                      className="rounded-lg border border-yellow-800/30 bg-zinc-900/60 p-3 cursor-grab active:cursor-grabbing hover:border-zinc-600 transition-colors group"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold text-zinc-300">{r.issue_identifier}</span>
+                        <span className="text-[10px] text-yellow-400">Retry #{r.attempt}</span>
+                      </div>
+                      {r.error && (
+                        <p className="text-[10px] text-red-400/80 leading-relaxed line-clamp-2 mb-2">{r.error}</p>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-zinc-500">Due {relativeTime(r.due_at)}</span>
+                        <button
+                          onClick={() => handleDelete(r.issue_id, r.issue_identifier)}
+                          disabled={loadingAction === `delete-${r.issue_id}`}
+                          className="px-2 py-0.5 text-[10px] rounded bg-zinc-800 text-zinc-500 border border-zinc-700 hover:bg-zinc-700 hover:text-red-400 transition-colors disabled:opacity-50 opacity-0 group-hover:opacity-100"
+                        >
+                          {loadingAction === `delete-${r.issue_id}` ? '...' : 'Delete'}
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3 text-[10px] text-zinc-500 mb-2">
-                      <span>Attempt {r.attempt}</span>
-                      <span>{formatDuration(r.seconds_running)}</span>
-                      <span>{formatTokens(r.tokens.total_tokens)} tokens</span>
+                  ))}
+                  {col.key === 'review' && (!data || data.retrying.length === 0) && (
+                    <div className="text-center py-8 text-zinc-600 text-xs">
+                      No items for review
                     </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => handleStop(r.issue_id)}
-                        disabled={loadingAction === `stop-${r.issue_id}`}
-                        className="px-2 py-0.5 text-[10px] rounded bg-red-900/30 text-red-400 border border-red-800/50 hover:bg-red-900/50 transition-colors disabled:opacity-50"
-                      >
-                        {loadingAction === `stop-${r.issue_id}` ? '...' : 'Stop'}
-                      </button>
-                      <button
-                        onClick={() => handleDelete(r.issue_id, r.issue_identifier)}
-                        disabled={loadingAction === `delete-${r.issue_id}`}
-                        className="px-2 py-0.5 text-[10px] rounded bg-zinc-800 text-zinc-500 border border-zinc-700 hover:bg-zinc-700 hover:text-red-400 transition-colors disabled:opacity-50"
-                      >
-                        {loadingAction === `delete-${r.issue_id}` ? '...' : 'Delete'}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {col.key === 'in-progress' && (!data || data.running.length === 0) && (
-                  <div className="text-center py-8 text-zinc-600 text-xs">
-                    {available.length > 0 ? 'Drag a task here to start' : 'No running sessions'}
-                  </div>
-                )}
+                  )}
 
-                {/* Review cards */}
-                {col.key === 'review' && data?.retrying.map((r) => (
-                  <div
-                    key={r.issue_id}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, r.issue_id, 'review')}
-                    className="rounded-lg border border-yellow-800/30 bg-zinc-900/60 p-3 cursor-grab active:cursor-grabbing hover:border-zinc-600 transition-colors group"
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-semibold text-zinc-300">{r.issue_identifier}</span>
-                      <span className="text-[10px] text-yellow-400">Retry #{r.attempt}</span>
+                  {/* Done cards */}
+                  {col.key === 'done' && doneItems.map((d) => (
+                    <div
+                      key={d.issue_id}
+                      className="rounded-lg border border-green-800/20 bg-zinc-900/60 p-3 group"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-semibold text-zinc-400">{d.issue_identifier}</span>
+                        <button
+                          onClick={() => handleDismissDone(d.issue_id)}
+                          className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                      <span className="text-[10px] text-zinc-500">Completed {relativeTime(d.finished_at)}</span>
                     </div>
-                    {r.error && (
-                      <p className="text-[10px] text-red-400/80 leading-relaxed line-clamp-2 mb-2">{r.error}</p>
-                    )}
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-zinc-500">Due {relativeTime(r.due_at)}</span>
-                      <button
-                        onClick={() => handleDelete(r.issue_id, r.issue_identifier)}
-                        disabled={loadingAction === `delete-${r.issue_id}`}
-                        className="px-2 py-0.5 text-[10px] rounded bg-zinc-800 text-zinc-500 border border-zinc-700 hover:bg-zinc-700 hover:text-red-400 transition-colors disabled:opacity-50 opacity-0 group-hover:opacity-100"
-                      >
-                        {loadingAction === `delete-${r.issue_id}` ? '...' : 'Delete'}
-                      </button>
+                  ))}
+                  {col.key === 'done' && doneItems.length === 0 && (
+                    <div className="text-center py-8 text-zinc-600 text-xs">
+                      Completed tasks appear here
                     </div>
-                  </div>
-                ))}
-                {col.key === 'review' && (!data || data.retrying.length === 0) && (
-                  <div className="text-center py-8 text-zinc-600 text-xs">
-                    No items for review
-                  </div>
-                )}
-
-                {/* Done cards */}
-                {col.key === 'done' && doneItems.map((d) => (
-                  <div
-                    key={d.issue_id}
-                    className="rounded-lg border border-green-800/20 bg-zinc-900/60 p-3 group"
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-semibold text-zinc-400">{d.issue_identifier}</span>
-                      <button
-                        onClick={() => handleDismissDone(d.issue_id)}
-                        className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        Dismiss
-                      </button>
-                    </div>
-                    <span className="text-[10px] text-zinc-500">Completed {relativeTime(d.finished_at)}</span>
-                  </div>
-                ))}
-                {col.key === 'done' && doneItems.length === 0 && (
-                  <div className="text-center py-8 text-zinc-600 text-xs">
-                    Completed tasks appear here
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Token breakdown */}
-        {data && data.codex_totals.total_tokens > 0 && (
-          <section>
-            <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-3">
-              Token Usage
-            </h2>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="rounded-lg border border-zinc-800 px-4 py-3">
-                <div className="text-xs text-zinc-500 mb-1">Input</div>
-                <div className="text-lg font-semibold text-blue-400">
-                  {formatTokens(data.codex_totals.input_tokens)}
+                  )}
                 </div>
               </div>
-              <div className="rounded-lg border border-zinc-800 px-4 py-3">
-                <div className="text-xs text-zinc-500 mb-1">Output</div>
-                <div className="text-lg font-semibold text-emerald-400">
-                  {formatTokens(data.codex_totals.output_tokens)}
-                </div>
-              </div>
-              <div className="rounded-lg border border-zinc-800 px-4 py-3">
-                <div className="text-xs text-zinc-500 mb-1">Total</div>
-                <div className="text-lg font-semibold text-purple-400">
-                  {formatTokens(data.codex_totals.total_tokens)}
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
-      </main>
+            ))}
+          </div>
+        </main>
+      </div>
     </div>
   );
 }
