@@ -91,14 +91,15 @@ This is your first attempt at this issue. Follow these steps:
 3. Implement the solution with focused, minimal changes
 4. Write or update tests for your changes
 5. Ensure all existing tests still pass
-6. Commit your changes with a descriptive commit message
+6. Commit all your changes with a descriptive commit message
+7. Push the branch to origin
+8. Create a pull request on GitHub targeting the `main` branch
 
 {% else %}
-This is retry attempt {{ attempt }}. Review your previous work on this branch and continue from where you left off. Fix any issues encountered in the previous attempt.
+This is retry attempt {{ attempt }}. Review your previous work on this branch and continue from where you left off. Fix any issues encountered in the previous attempt. When done, commit, push, and create a PR if one doesn't already exist.
 {% endif %}
 
 ### Guidelines
 - Make focused, minimal changes — do not refactor unrelated code
-- Write clear commit messages explaining what changed and why
 - If tests exist, make sure they pass before finishing
-- All your work should be committed to the current branch
+- Do NOT commit, push, or create a PR — the orchestrator handles that automatically after you finish

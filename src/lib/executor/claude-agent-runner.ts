@@ -214,7 +214,25 @@ export class ClaudeAgentRunner implements AgentRunner {
       };
     }
 
-    // 5. Run after_run hook (non-fatal)
+    // 5. If Claude succeeded, commit + push + create PR (post-processing)
+    if (result.success) {
+      try {
+        await this.commitPushAndCreatePR(
+          workspacePath,
+          issue,
+          config,
+          onUpdate,
+        );
+      } catch (err) {
+        log.warn('Post-processing (commit/push/PR) failed', {
+          session_id: sessionId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        // Don't fail the whole run — code changes are still there
+      }
+    }
+
+    // 6. Run after_run hook (non-fatal)
     await this.runAfterRunHook(config, workspacePath);
     this.activeProcesses.delete(issue.id);
 
@@ -297,7 +315,7 @@ export class ClaudeAgentRunner implements AgentRunner {
       });
 
       const cloneResult = await execInWorkspace(
-        `git clone --depth=50 "${cloneUrl}" .`,
+        `git clone --depth=50 ${cloneUrl} .`,
         workspacePath,
         GIT_TIMEOUT_MS,
       );
@@ -329,8 +347,9 @@ export class ClaudeAgentRunner implements AgentRunner {
     }
 
     // Create or checkout the branch
+    const nullDev = process.platform === 'win32' ? 'NUL' : '/dev/null';
     const branchCheck = await execInWorkspace(
-      `git rev-parse --verify "${branchName}" 2>/dev/null`,
+      `git rev-parse --verify ${branchName} 2>${nullDev}`,
       workspacePath,
       10_000,
     );
@@ -338,14 +357,14 @@ export class ClaudeAgentRunner implements AgentRunner {
     if (branchCheck.exitCode === 0) {
       // Branch exists, check it out
       await execInWorkspace(
-        `git checkout "${branchName}"`,
+        `git checkout ${branchName}`,
         workspacePath,
         10_000,
       );
     } else {
       // Create new branch from default branch
       const createResult = await execInWorkspace(
-        `git checkout -b "${branchName}"`,
+        `git checkout -b ${branchName}`,
         workspacePath,
         10_000,
       );
@@ -382,6 +401,7 @@ export class ClaudeAgentRunner implements AgentRunner {
       const args = [
         '-p',
         '--output-format', 'stream-json',
+        '--verbose',
         '--max-turns', String(maxTurns),
         '--dangerously-skip-permissions',
       ];
@@ -394,10 +414,30 @@ export class ClaudeAgentRunner implements AgentRunner {
       const claudeBin = resolveClaudeBinary();
       logger.debug('Spawning Claude CLI', { binary: claudeBin, args });
 
+      // Strip CLAUDECODE env var so the child process doesn't think it's a
+      // nested session (Claude Code refuses to launch inside another session).
+      const childEnv = { ...process.env };
+      delete childEnv.CLAUDECODE;
+      delete childEnv.CLAUDE_CODE_ENTRYPOINT;
+
+      // Ensure GH_TOKEN is set for `gh` CLI (used for PR creation).
+      // gh prefers GH_TOKEN over GITHUB_TOKEN.
+      if (!childEnv.GH_TOKEN && childEnv.GITHUB_TOKEN) {
+        childEnv.GH_TOKEN = childEnv.GITHUB_TOKEN;
+      }
+
+      // Ensure GitHub CLI is in PATH (common install location on Windows)
+      if (process.platform === 'win32') {
+        const ghDir = 'C:\\Program Files\\GitHub CLI';
+        if (childEnv.PATH && !childEnv.PATH.includes(ghDir)) {
+          childEnv.PATH = `${childEnv.PATH};${ghDir}`;
+        }
+      }
+
       const child = spawn(claudeBin, args, {
         cwd: workspacePath,
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env },
+        env: childEnv,
       });
 
       this.activeProcesses.set(issueId, child);
@@ -669,6 +709,183 @@ export class ClaudeAgentRunner implements AgentRunner {
       config.hooks.timeoutMs,
       false, // Non-fatal
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Post-processing: commit, push, and create PR
+  // ---------------------------------------------------------------------------
+
+  private async commitPushAndCreatePR(
+    workspacePath: string,
+    issue: Issue,
+    config: ServiceConfig,
+    onUpdate: (event: CodexUpdateEvent) => void,
+  ): Promise<void> {
+    const log = logger.forIssue(issue.id, issue.identifier);
+    const { apiKey, projectSlug } = config.tracker;
+
+    // 1. Check for uncommitted changes
+    const statusResult = await execInWorkspace(
+      'git status --porcelain',
+      workspacePath,
+      10_000,
+    );
+
+    const hasChanges = statusResult.stdout.trim().length > 0;
+    if (!hasChanges) {
+      log.info('No uncommitted changes to commit');
+      return;
+    }
+
+    onUpdate({
+      kind: 'message',
+      role: 'system',
+      content: 'Committing changes...',
+    });
+
+    // 2. Stage all changes
+    const addResult = await execInWorkspace(
+      'git add -A',
+      workspacePath,
+      10_000,
+    );
+    if (addResult.exitCode !== 0) {
+      throw new Error(`git add failed: ${addResult.stderr}`);
+    }
+
+    // 3. Commit — write message to a temp file to avoid shell quoting issues on Windows
+    const commitMsgPath = path.join(workspacePath, '.git', 'HARMONY_COMMIT_MSG');
+    const commitMsg = `${issue.identifier}: ${issue.title}\n\nImplemented changes for issue ${issue.identifier}. Ref: ${issue.url || ''}`;
+    await fs.writeFile(commitMsgPath, commitMsg, 'utf-8');
+    const commitResult = await execInWorkspace(
+      'git commit -F .git/HARMONY_COMMIT_MSG',
+      workspacePath,
+      30_000,
+    );
+    try { await fs.unlink(commitMsgPath); } catch { /* best effort cleanup */ }
+    if (commitResult.exitCode !== 0) {
+      throw new Error(`git commit failed: ${commitResult.stderr}`);
+    }
+    log.info('Changes committed', {
+      stdout: commitResult.stdout.slice(0, 200),
+    });
+
+    // 4. Push the branch
+    onUpdate({
+      kind: 'message',
+      role: 'system',
+      content: 'Pushing branch to origin...',
+    });
+
+    const pushResult = await execInWorkspace(
+      'git push -u origin HEAD',
+      workspacePath,
+      60_000,
+    );
+    if (pushResult.exitCode !== 0) {
+      throw new Error(`git push failed: ${pushResult.stderr}`);
+    }
+    log.info('Branch pushed to origin');
+
+    // 5. Create PR via GitHub API (more reliable than requiring gh CLI)
+    onUpdate({
+      kind: 'message',
+      role: 'system',
+      content: 'Creating pull request...',
+    });
+
+    const branchResult = await execInWorkspace(
+      'git branch --show-current',
+      workspacePath,
+      5_000,
+    );
+    const branchName = branchResult.stdout.trim();
+
+    try {
+      const [owner, repo] = projectSlug.split('/');
+      const prResponse = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/pulls`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `token ${apiKey}`,
+            'Content-Type': 'application/json',
+            Accept: 'application/vnd.github.v3+json',
+          },
+          body: JSON.stringify({
+            title: `${issue.identifier}: ${issue.title}`,
+            body: [
+              `## Summary`,
+              ``,
+              `Automated implementation for [${issue.identifier}](${issue.url || ''}).`,
+              ``,
+              `**Issue:** ${issue.title}`,
+              issue.description ? `\n**Description:** ${issue.description}` : '',
+              ``,
+              `---`,
+              `*Created automatically by Harmony Agent Orchestrator*`,
+            ].join('\n'),
+            head: branchName,
+            base: 'main',
+          }),
+        },
+      );
+
+      if (prResponse.ok) {
+        const prData = (await prResponse.json()) as { html_url: string; number: number };
+        log.info('Pull request created', {
+          pr_url: prData.html_url,
+          pr_number: prData.number,
+        });
+        onUpdate({
+          kind: 'message',
+          role: 'system',
+          content: `Pull request created: ${prData.html_url}`,
+        });
+      } else {
+        const errBody = await prResponse.text();
+        // 422 often means PR already exists
+        if (prResponse.status === 422 && errBody.includes('already exists')) {
+          log.info('Pull request already exists for this branch');
+          onUpdate({
+            kind: 'message',
+            role: 'system',
+            content: 'Pull request already exists for this branch',
+          });
+        } else {
+          throw new Error(
+            `GitHub API returned ${prResponse.status}: ${errBody.slice(0, 300)}`,
+          );
+        }
+      }
+    } catch (err) {
+      // If GitHub API fails, try gh CLI as fallback
+      log.warn('GitHub API PR creation failed, trying gh CLI fallback', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+
+      const prBodyFile = path.join(workspacePath, '.git', 'HARMONY_PR_BODY');
+      await fs.writeFile(prBodyFile, `Automated implementation for ${issue.identifier}: ${issue.title}`, 'utf-8');
+      const ghResult = await execInWorkspace(
+        `gh pr create --title ${issue.identifier} --body-file .git/HARMONY_PR_BODY --base main`,
+        workspacePath,
+        30_000,
+      );
+      try { await fs.unlink(prBodyFile); } catch { /* best effort */ }
+
+      if (ghResult.exitCode === 0) {
+        log.info('Pull request created via gh CLI', {
+          stdout: ghResult.stdout.slice(0, 200),
+        });
+        onUpdate({
+          kind: 'message',
+          role: 'system',
+          content: `Pull request created: ${ghResult.stdout.trim()}`,
+        });
+      } else {
+        throw new Error(`gh pr create failed: ${ghResult.stderr}`);
+      }
+    }
   }
 }
 

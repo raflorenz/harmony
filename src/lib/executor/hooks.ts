@@ -5,6 +5,14 @@
 import { spawn } from 'child_process';
 import { logger } from '../observability/logger';
 
+/** Return the correct shell command and args for the current platform. */
+function shellArgs(script: string): { cmd: string; args: string[] } {
+  if (process.platform === 'win32') {
+    return { cmd: 'cmd.exe', args: ['/s', '/c', script] };
+  }
+  return { cmd: 'bash', args: ['-lc', script] };
+}
+
 /**
  * Execute a shell hook script in the given workspace directory.
  *
@@ -23,7 +31,8 @@ export async function executeHook(
   logger.debug(`Hook "${name}" starting`, { cwd });
 
   return new Promise<void>((resolve, reject) => {
-    const child = spawn('bash', ['-lc', script], {
+    const { cmd, args } = shellArgs(script);
+    const child = spawn(cmd, args, {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env },
@@ -86,7 +95,8 @@ export async function execInWorkspace(
   timeoutMs: number,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
-    const child = spawn('bash', ['-lc', command], {
+    const { cmd, args } = shellArgs(command);
+    const child = spawn(cmd, args, {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env },
