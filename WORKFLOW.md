@@ -5,7 +5,7 @@
 tracker:
   kind: github
   api_key: $GITHUB_TOKEN
-  project_slug: owner/repo
+  project_slug: raflorenz/harmony
   active_states:
     - Todo
     - In Progress
@@ -20,12 +20,12 @@ polling:
   interval_ms: 30000
 
 workspace:
-  root: ~/symphony_workspaces
+  root: ~/harmony_workspaces
 
 hooks:
+  # Git clone is handled by ClaudeAgentRunner — no git init needed here
   after_create: |
-    git init
-    echo "Workspace initialized"
+    echo "Workspace created"
   before_run: |
     echo "Starting agent run"
   after_run: |
@@ -33,13 +33,19 @@ hooks:
   timeout_ms: 60000
 
 agent:
-  max_concurrent_agents: 5
+  max_concurrent_agents: 3
   max_turns: 20
   max_retry_backoff_ms: 300000
-  max_concurrent_agents_by_state:
-    todo: 2
-    in progress: 5
 
+# Claude Code CLI as the agent runner
+# Requires: `claude` CLI installed, ANTHROPIC_API_KEY env var set
+claude:
+  enabled: true
+  runtime_timeout_ms: 1200000  # 20 minutes per task
+  max_turns: 20
+  model: ""  # empty = use CLI default
+
+# Codex config kept for fallback (claude.enabled: false to use Codex instead)
 codex:
   command: codex app-server
   approval_policy: auto-edit
@@ -50,9 +56,11 @@ server:
   port: 3000
 ---
 
-# Symphony Workflow
+# Harmony Workflow
 
 You are a coding agent working on issue **{{ issue.identifier }}**: **{{ issue.title }}**.
+
+You are working inside a cloned Git repository on a dedicated branch. Your goal is to implement the changes described in this issue.
 
 ## Issue Details
 
@@ -76,15 +84,21 @@ You are a coding agent working on issue **{{ issue.identifier }}**: **{{ issue.t
 ## Instructions
 
 {% if attempt == null %}
-This is your first attempt at this issue. Read the codebase, understand the problem, implement the solution, write tests, and create a pull request.
+This is your first attempt at this issue. Follow these steps:
+
+1. Read the codebase to understand the architecture and relevant code
+2. Plan your implementation approach
+3. Implement the solution with focused, minimal changes
+4. Write or update tests for your changes
+5. Ensure all existing tests still pass
+6. Commit your changes with a descriptive commit message
+
 {% else %}
-This is retry attempt {{ attempt }}. Review your previous work and continue from where you left off. Fix any issues encountered in the previous attempt.
+This is retry attempt {{ attempt }}. Review your previous work on this branch and continue from where you left off. Fix any issues encountered in the previous attempt.
 {% endif %}
 
 ### Guidelines
-1. Read the existing code and understand the architecture
-2. Make focused, minimal changes
-3. Write or update tests for your changes
-4. Ensure all existing tests pass
-5. Create a descriptive commit message
-6. If the change is ready, transition the issue to "In Progress" and create a PR
+- Make focused, minimal changes — do not refactor unrelated code
+- Write clear commit messages explaining what changed and why
+- If tests exist, make sure they pass before finishing
+- All your work should be committed to the current branch

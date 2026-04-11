@@ -132,6 +132,17 @@ export interface CodexConfig {
   stallTimeoutMs: number;
 }
 
+export interface ClaudeConfig {
+  /** Whether to use Claude Code CLI instead of Codex. */
+  enabled: boolean;
+  /** Total runtime timeout in ms for each task (default: 1_200_000 = 20 min). */
+  runtimeTimeoutMs: number;
+  /** Max turns for the Claude CLI --max-turns flag. */
+  maxTurns: number;
+  /** Model to use (e.g. "claude-sonnet-4-20250514"), or empty for CLI default. */
+  model: string;
+}
+
 export interface ServerConfig {
   port?: number;
 }
@@ -144,6 +155,7 @@ export interface ServiceConfig {
   hooks: HooksConfig;
   agent: AgentConfig;
   codex: CodexConfig;
+  claude: ClaudeConfig;
   server?: ServerConfig;
 }
 

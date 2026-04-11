@@ -77,6 +77,57 @@ export async function executeHook(
 }
 
 /**
+ * Execute a shell command in a workspace directory and return the result.
+ * Unlike executeHook, this returns stdout/stderr and exit code for inspection.
+ */
+export async function execInWorkspace(
+  command: string,
+  cwd: string,
+  timeoutMs: number,
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('bash', ['-lc', command], {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env },
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString();
+      if (stdout.length > 50_000) {
+        stdout = stdout.slice(-25_000);
+      }
+    });
+
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString();
+      if (stderr.length > 50_000) {
+        stderr = stderr.slice(-25_000);
+      }
+    });
+
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM');
+      setTimeout(() => child.kill('SIGKILL'), 5_000);
+      reject(new Error(`Command timed out after ${timeoutMs}ms: ${command}`));
+    }, timeoutMs);
+
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(new Error(`Command spawn error: ${err.message}`));
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ stdout, stderr, exitCode: code ?? 1 });
+    });
+  });
+}
+
+/**
  * Run a hook if configured, with proper failure semantics.
  *
  * @param fatal If true, errors propagate. If false, errors are logged and ignored.

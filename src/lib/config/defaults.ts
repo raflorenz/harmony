@@ -25,4 +25,10 @@ export const DEFAULTS = {
     readTimeoutMs: 5000,
     stallTimeoutMs: 300000,
   },
+  claude: {
+    enabled: false,
+    runtimeTimeoutMs: 1_200_000, // 20 minutes
+    maxTurns: 20,
+    model: '', // empty = use CLI default
+  },
 };

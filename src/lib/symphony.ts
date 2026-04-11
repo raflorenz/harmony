@@ -20,6 +20,7 @@ import { Scheduler } from './orchestrator/scheduler';
 import type { AgentRunner } from './orchestrator/scheduler';
 import { WorkspaceManagerImpl } from './executor/workspace';
 import { AgentRunnerImpl } from './executor/agent-runner';
+import { ClaudeAgentRunner } from './executor/claude-agent-runner';
 import { MockAgentRunner } from './executor/mock-agent-runner';
 import { logger } from './observability/logger';
 import type { ServiceConfig } from './tracker/types';
@@ -119,7 +120,9 @@ export async function startSymphony(
   // 6. Create agent runner
   const agentRunner: AgentRunner = _mockMode
     ? new MockAgentRunner()
-    : new AgentRunnerImpl(tracker);
+    : config.claude.enabled
+      ? new ClaudeAgentRunner(tracker)
+      : new AgentRunnerImpl(tracker);
 
   // 7. Apply mock-friendly config overrides
   const effectiveConfig: ServiceConfig = _mockMode
@@ -192,6 +195,7 @@ export async function startSymphony(
 
   logger.info('Symphony started successfully', {
     mock_mode: _mockMode,
+    agent_runner: _mockMode ? 'mock' : config.claude.enabled ? 'claude' : 'codex',
     tracker_kind: _mockMode ? 'mock' : config.tracker.kind,
     project_slug: effectiveConfig.tracker.projectSlug,
     workspace_root: effectiveConfig.workspace.root,

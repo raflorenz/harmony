@@ -88,12 +88,31 @@ function coerceInt(value: unknown): number | undefined {
 // Helpers for deep-merging a raw config section over a defaults object
 // ---------------------------------------------------------------------------
 
+/**
+ * Convert a camelCase key to its snake_case equivalent.
+ * e.g. "projectSlug" → "project_slug", "maxTurns" → "max_turns"
+ */
+function toSnakeCase(key: string): string {
+  return key.replace(/[A-Z]/g, (ch) => `_${ch.toLowerCase()}`);
+}
+
+/**
+ * Look up a value from a raw config object, trying camelCase first then snake_case.
+ */
+function rawGet(raw: Record<string, unknown> | undefined, key: string): unknown {
+  if (!raw) return undefined;
+  if (key in raw) return raw[key];
+  const snake = toSnakeCase(key);
+  if (snake !== key && snake in raw) return raw[snake];
+  return undefined;
+}
+
 function getStr(
   raw: Record<string, unknown> | undefined,
   key: string,
   fallback: string,
 ): string {
-  const v = raw?.[key];
+  const v = rawGet(raw, key);
   if (typeof v === 'string') return expandString(v);
   return fallback;
 }
@@ -103,7 +122,7 @@ function getStrArray(
   key: string,
   fallback: string[],
 ): string[] {
-  const v = raw?.[key];
+  const v = rawGet(raw, key);
   if (Array.isArray(v)) return v.map((s) => (typeof s === 'string' ? expandString(s) : String(s)));
   return fallback;
 }
@@ -113,7 +132,7 @@ function getInt(
   key: string,
   fallback: number,
 ): number {
-  const v = raw?.[key];
+  const v = rawGet(raw, key);
   const n = coerceInt(v);
   return n !== undefined ? n : fallback;
 }
@@ -136,6 +155,7 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
   const rawHooks = rawConfig.hooks as Record<string, unknown> | undefined;
   const rawAgent = rawConfig.agent as Record<string, unknown> | undefined;
   const rawCodex = rawConfig.codex as Record<string, unknown> | undefined;
+  const rawClaude = rawConfig.claude as Record<string, unknown> | undefined;
 
   // -- tracker ---------------------------------------------------------------
   // Resolve apiKey: explicit value > $VAR in config > LINEAR_API_KEY env var
@@ -161,7 +181,7 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
   }
 
   // -- agent per-state concurrency -------------------------------------------
-  const rawPerState = rawAgent?.maxConcurrentAgentsByState as Record<string, unknown> | undefined;
+  const rawPerState = (rawGet(rawAgent, 'maxConcurrentAgentsByState') ?? undefined) as Record<string, unknown> | undefined;
   const perStateConcurrency: Record<string, number> = {};
   if (rawPerState && typeof rawPerState === 'object') {
     for (const [key, val] of Object.entries(rawPerState)) {
@@ -174,13 +194,20 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
   }
 
   // -- hooks -----------------------------------------------------------------
+  const hookVal = (key: string) => {
+    const v = rawGet(rawHooks, key);
+    return v != null ? expandString(String(v)) : null;
+  };
   const resolvedHooks = {
-    afterCreate: rawHooks?.afterCreate != null ? expandString(String(rawHooks.afterCreate)) : null,
-    beforeRun: rawHooks?.beforeRun != null ? expandString(String(rawHooks.beforeRun)) : null,
-    afterRun: rawHooks?.afterRun != null ? expandString(String(rawHooks.afterRun)) : null,
-    beforeRemove: rawHooks?.beforeRemove != null ? expandString(String(rawHooks.beforeRemove)) : null,
+    afterCreate: hookVal('afterCreate'),
+    beforeRun: hookVal('beforeRun'),
+    afterRun: hookVal('afterRun'),
+    beforeRemove: hookVal('beforeRemove'),
     timeoutMs: getInt(rawHooks, 'timeoutMs', DEFAULTS.hooks.timeoutMs),
   };
+
+  // -- claude ----------------------------------------------------------------
+  const claudeEnabled = rawClaude?.enabled === true || rawClaude?.enabled === 'true';
 
   return {
     tracker: {
@@ -216,6 +243,12 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
       turnTimeoutMs: getInt(rawCodex, 'turnTimeoutMs', DEFAULTS.codex.turnTimeoutMs),
       readTimeoutMs: getInt(rawCodex, 'readTimeoutMs', DEFAULTS.codex.readTimeoutMs),
       stallTimeoutMs: getInt(rawCodex, 'stallTimeoutMs', DEFAULTS.codex.stallTimeoutMs),
+    },
+    claude: {
+      enabled: claudeEnabled,
+      runtimeTimeoutMs: getInt(rawClaude, 'runtimeTimeoutMs', DEFAULTS.claude.runtimeTimeoutMs),
+      maxTurns: getInt(rawClaude, 'maxTurns', DEFAULTS.claude.maxTurns),
+      model: getStr(rawClaude, 'model', DEFAULTS.claude.model),
     },
   };
 }
@@ -257,9 +290,9 @@ export function validateDispatchConfig(config: ServiceConfig): ValidationResult 
     errors.push('tracker.projectSlug is required when tracker.kind is "github" (use "owner/repo" format)');
   }
 
-  // codex.command present and non-empty
-  if (!config.codex.command || !config.codex.command.trim()) {
-    errors.push('codex.command is required and must be non-empty');
+  // codex.command present and non-empty (only required when claude is not enabled)
+  if (!config.claude.enabled && (!config.codex.command || !config.codex.command.trim())) {
+    errors.push('codex.command is required and must be non-empty (unless claude.enabled is true)');
   }
 
   return { ok: errors.length === 0, errors };
