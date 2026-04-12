@@ -396,7 +396,7 @@ export function Dashboard() {
   const autoDispatch = data?.auto_dispatch ?? false;
 
   const columnConfig: { key: KanbanColumn; label: string; accent: string; count: number }[] = [
-    { key: 'todo', label: 'To Do', accent: 'border-zinc-500', count: available.length },
+    { key: 'todo', label: 'To Do', accent: 'border-claude-orange', count: available.length },
     { key: 'in-progress', label: 'In Progress', accent: 'border-blue-500', count: data?.running.length ?? 0 },
     { key: 'review', label: 'Review', accent: 'border-yellow-500', count: data?.retrying.length ?? 0 },
     { key: 'done', label: 'Done', accent: 'border-green-500', count: doneItems.length },
@@ -408,7 +408,7 @@ export function Dashboard() {
       <header className="border-b border-zinc-200 dark:border-zinc-800 px-6 py-4">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
+            <div className="w-3 h-3 rounded-full bg-claude-orange dark:bg-green-500 animate-pulse" />
             <h1 className="text-xl font-bold tracking-tight">Symphony</h1>
             <span className="text-xs text-zinc-500 ml-1">Agent Orchestrator</span>
             {data?.mock_mode && (
@@ -616,7 +616,7 @@ export function Dashboard() {
                 <button
                   onClick={handleAddIssue}
                   disabled={loadingAction === 'add-issue'}
-                  className="px-4 py-2 text-xs rounded-md bg-indigo-700 text-white hover:bg-indigo-600 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 text-xs rounded-md bg-claude-orange text-white hover:bg-claude-orange/85 transition-colors disabled:opacity-50"
                 >
                   {loadingAction === 'add-issue' ? 'Adding...' : 'Add Issue'}
                 </button>
