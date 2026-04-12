@@ -1,7 +1,7 @@
 // POST /api/v1/issues/:issueId/delete — Delete a session (stop + clean workspace)
 
 import { NextResponse } from 'next/server';
-import { getScheduler } from '@/lib/symphony';
+import { getScheduler } from '@/lib/harmony';
 
 export const dynamic = 'force-dynamic';
 

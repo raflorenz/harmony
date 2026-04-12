@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Symphony Config Resolver & Validator (Spec Section 6.3 / 6.4)
+// Harmony Config Resolver & Validator (Spec Section 6.3 / 6.4)
 // ---------------------------------------------------------------------------
 
 import * as os from 'os';
@@ -174,7 +174,7 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
   }
 
   // -- workspace root --------------------------------------------------------
-  const defaultWorkspaceRoot = path.join(os.tmpdir(), 'symphony_workspaces');
+  const defaultWorkspaceRoot = path.join(os.tmpdir(), 'harmony_workspaces');
   let workspaceRoot = getStr(rawWorkspace, 'root', '');
   if (!workspaceRoot) {
     workspaceRoot = defaultWorkspaceRoot;

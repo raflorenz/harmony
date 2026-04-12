@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Symphony Configuration Layer — Public API
+// Harmony Configuration Layer — Public API
 // ---------------------------------------------------------------------------
 
 export { DEFAULTS } from './defaults';

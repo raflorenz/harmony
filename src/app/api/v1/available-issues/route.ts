@@ -1,7 +1,7 @@
 // GET /api/v1/available-issues — List issues available for manual dispatch
 
 import { NextResponse } from 'next/server';
-import { getScheduler } from '@/lib/symphony';
+import { getScheduler } from '@/lib/harmony';
 
 export const dynamic = 'force-dynamic';
 
