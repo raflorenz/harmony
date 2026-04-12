@@ -138,6 +138,10 @@ export function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [doneItems, setDoneItems] = useState<DoneItem[]>([]);
   const [dragOverColumn, setDragOverColumn] = useState<KanbanColumn | null>(null);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [newIssueCount, setNewIssueCount] = useState(0);
+  const latestAvailableRef = useRef<AvailableIssue[]>([]);
+  const displayedIdsRef = useRef<Set<string>>(new Set());
 
   // Track previously-running issue IDs so we can detect completions
   const prevRunningIds = useRef<Set<string>>(new Set());
@@ -165,6 +169,25 @@ export function Dashboard() {
       const res = await fetch('/api/v1/available-issues');
       const json = await res.json();
       setAvailable(json.issues ?? []);
+    } catch {
+      // silent
+    }
+  }, []);
+
+  // Keep displayed IDs ref in sync with available state
+  useEffect(() => {
+    displayedIdsRef.current = new Set(available.map(a => a.id));
+  }, [available]);
+
+  // Background check for new issues (updates badge count only)
+  const checkForNewIssues = useCallback(async () => {
+    try {
+      const res = await fetch('/api/v1/available-issues');
+      const json = await res.json();
+      const latest: AvailableIssue[] = json.issues ?? [];
+      latestAvailableRef.current = latest;
+      const newCount = latest.filter(i => !displayedIdsRef.current.has(i.id)).length;
+      setNewIssueCount(newCount);
     } catch {
       // silent
     }
@@ -215,13 +238,13 @@ export function Dashboard() {
 
   useEffect(() => {
     fetchState();
-    fetchAvailable();
+    checkForNewIssues();
     const interval = setInterval(() => {
       fetchState();
-      fetchAvailable();
+      checkForNewIssues();
     }, 3000);
     return () => clearInterval(interval);
-  }, [fetchState, fetchAvailable]);
+  }, [fetchState, checkForNewIssues]);
 
   // ---- Actions ----
 
@@ -286,6 +309,16 @@ export function Dashboard() {
       }, 1500);
     } catch {
       setRefreshing(false);
+    }
+  };
+
+  const handleSyncIssues = async () => {
+    setSyncLoading(true);
+    try {
+      await fetchAvailable();
+      setNewIssueCount(0);
+    } finally {
+      setSyncLoading(false);
     }
   };
 
@@ -498,8 +531,25 @@ export function Dashboard() {
             </div>
           )}
 
-          {/* Add Issue button */}
-          <div className="flex justify-end">
+          {/* Action buttons */}
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={handleSyncIssues}
+              disabled={syncLoading}
+              className="relative px-3 py-1.5 text-xs rounded-md bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50 hover:bg-emerald-200 dark:hover:bg-emerald-900/60 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={syncLoading ? 'animate-spin' : ''}>
+                <polyline points="23 4 23 10 17 10" />
+                <polyline points="1 20 1 14 7 14" />
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+              </svg>
+              {syncLoading ? 'Syncing...' : 'Sync Issues'}
+              {newIssueCount > 0 && !syncLoading && (
+                <span className="absolute -top-2 -right-2 min-w-[18px] h-[18px] flex items-center justify-center px-1 text-[10px] font-bold rounded-full bg-red-500 text-white">
+                  {newIssueCount}
+                </span>
+              )}
+            </button>
             <button
               onClick={() => setShowAddForm(!showAddForm)}
               className="px-3 py-1.5 text-xs rounded-md bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/50 hover:bg-indigo-200 dark:hover:bg-indigo-900/60 transition-colors"
