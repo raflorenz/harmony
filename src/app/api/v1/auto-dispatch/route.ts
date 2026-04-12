@@ -1,7 +1,7 @@
 // GET/POST /api/v1/auto-dispatch — Toggle or query auto-dispatch mode
 
 import { NextResponse } from 'next/server';
-import { getScheduler } from '@/lib/symphony';
+import { getScheduler } from '@/lib/harmony';
 
 export const dynamic = 'force-dynamic';
 

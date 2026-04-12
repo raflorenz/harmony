@@ -77,7 +77,7 @@ export class GitHubClient implements TrackerClient {
     if (parts.length !== 2 || !parts[0] || !parts[1]) {
       throw new TrackerError(
         'tracker_network_error',
-        `Invalid projectSlug "${config.projectSlug}". Expected "owner/repo" format (e.g. "openai/symphony").`,
+        `Invalid projectSlug "${config.projectSlug}". Expected "owner/repo" format (e.g. "openai/harmony").`,
       );
     }
 
@@ -202,7 +202,7 @@ export class GitHubClient implements TrackerClient {
   }
 
   /**
-   * Normalize a raw GitHub issue into the Symphony Issue model.
+   * Normalize a raw GitHub issue into the Harmony Issue model.
    */
   private normalizeIssue(raw: GitHubIssue): Issue {
     // Map labels to lowercase

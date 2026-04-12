@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Symphony — Agent Orchestrator",
+  title: "Harmony — Agent Orchestrator",
   description: "Orchestrates coding agents to get project work done",
 };
 

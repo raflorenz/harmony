@@ -409,7 +409,7 @@ export function Dashboard() {
         <div className="max-w-[1600px] mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-3 h-3 rounded-full bg-claude-orange dark:bg-green-500 animate-pulse" />
-            <h1 className="text-xl font-bold tracking-tight">Symphony</h1>
+            <h1 className="text-xl font-bold tracking-tight">Harmony</h1>
             <span className="text-xs text-zinc-500 ml-1">Agent Orchestrator</span>
             {data?.mock_mode && (
               <span className="ml-1 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50">

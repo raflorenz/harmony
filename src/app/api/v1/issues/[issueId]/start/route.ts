@@ -1,7 +1,7 @@
 // POST /api/v1/issues/:issueId/start — Manually start a session
 
 import { NextResponse } from 'next/server';
-import { getScheduler } from '@/lib/symphony';
+import { getScheduler } from '@/lib/harmony';
 
 export const dynamic = 'force-dynamic';
 

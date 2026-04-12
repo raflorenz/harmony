@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Symphony Observability Layer - Public API
+// Harmony Observability Layer - Public API
 // ---------------------------------------------------------------------------
 
 export { Logger, logger } from "./logger";

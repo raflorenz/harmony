@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Symphony Configuration Defaults (Spec Section 6.4)
+// Harmony Configuration Defaults (Spec Section 6.4)
 // ---------------------------------------------------------------------------
 
 export const DEFAULTS = {
@@ -9,7 +9,7 @@ export const DEFAULTS = {
     terminalStates: ['Closed', 'Cancelled', 'Canceled', 'Duplicate', 'Done'],
   },
   polling: { intervalMs: 30000 },
-  workspace: { root: '' }, // resolved at runtime to os.tmpdir()/symphony_workspaces
+  workspace: { root: '' }, // resolved at runtime to os.tmpdir()/harmony_workspaces
   hooks: { timeoutMs: 60000 },
   agent: {
     maxConcurrentAgents: 10,

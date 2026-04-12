@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Symphony Observability - Metrics & Snapshots (Spec Section 13.5)
+// Harmony Observability - Metrics & Snapshots (Spec Section 13.5)
 // ---------------------------------------------------------------------------
 
 import type {

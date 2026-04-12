@@ -178,7 +178,7 @@ export class AppServerClient {
     try {
       // Step 1: Send initialize request
       const initReq = makeRequest('initialize', {
-        clientInfo: { name: 'symphony', version: '1.0' },
+        clientInfo: { name: 'harmony', version: '1.0' },
         capabilities: {},
       });
       sendMessage(child, initReq);
@@ -357,7 +357,7 @@ export class AppServerClient {
       ) {
         onUpdate({
           kind: 'error',
-          message: 'Agent requested user input (not supported in Symphony)',
+          message: 'Agent requested user input (not supported in Harmony)',
           fatal: true,
         });
         return {

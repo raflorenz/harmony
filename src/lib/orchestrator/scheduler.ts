@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Symphony Scheduler – The Core Orchestration Loop (Spec Sections 7–8, 16)
+// Harmony Scheduler – The Core Orchestration Loop (Spec Sections 7–8, 16)
 // ---------------------------------------------------------------------------
 
 import type {
@@ -79,7 +79,7 @@ export class Scheduler {
 
   /** Start the service (Section 16.1). */
   async start(): Promise<void> {
-    logger.info('Symphony scheduler starting');
+    logger.info('Harmony scheduler starting');
 
     // Validate config before starting
     const validation = validateDispatchConfig(this.config);
@@ -98,7 +98,7 @@ export class Scheduler {
     // Schedule immediate first tick
     this.scheduleTick(0);
 
-    logger.info('Symphony scheduler started', {
+    logger.info('Harmony scheduler started', {
       poll_interval_ms: this.state.pollIntervalMs,
       max_concurrent_agents: this.state.maxConcurrentAgents,
     });
@@ -123,7 +123,7 @@ export class Scheduler {
       await this.terminateWorker(issueId, false);
     }
 
-    logger.info('Symphony scheduler stopped');
+    logger.info('Harmony scheduler stopped');
   }
 
   /** Get the current state for snapshots / API. */

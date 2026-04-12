@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Symphony Observability - Structured Logger (Spec Section 13)
+// Harmony Observability - Structured Logger (Spec Section 13)
 // ---------------------------------------------------------------------------
 
 /** Log severity levels ordered by verbosity. */
