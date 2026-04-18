@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { NextResponse } from 'next/server';
-import { getScheduler, isMockMode } from '@/lib/symphony';
+import { getScheduler, isMockMode } from '@/lib/harmony';
 import { createSnapshot } from '@/lib/observability/metrics';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +16,7 @@ export function GET() {
       {
         error: {
           code: 'unavailable',
-          message: 'Symphony orchestrator is not running',
+          message: 'Harmony orchestrator is not running',
         },
       },
       { status: 503 },

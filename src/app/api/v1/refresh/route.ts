@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { NextResponse } from 'next/server';
-import { getScheduler } from '@/lib/symphony';
+import { getScheduler } from '@/lib/harmony';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +15,7 @@ export function POST() {
       {
         error: {
           code: 'unavailable',
-          message: 'Symphony orchestrator is not running',
+          message: 'Harmony orchestrator is not running',
         },
       },
       { status: 503 },

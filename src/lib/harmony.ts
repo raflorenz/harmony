@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------------
-// Symphony Service Bootstrap
+// Harmony Service Bootstrap
 // ---------------------------------------------------------------------------
 //
-// This module creates and manages the singleton Symphony orchestrator.
+// This module creates and manages the singleton Harmony orchestrator.
 // It's initialized via Next.js instrumentation.ts and accessed by API routes.
 //
-// MOCK MODE: When LINEAR_API_KEY is not set (or SYMPHONY_MOCK=true), the
+// MOCK MODE: When LINEAR_API_KEY is not set (or HARMONY_MOCK=true), the
 // service starts with mock tracker + mock agent runner so the full dashboard
 // and orchestration loop can be demonstrated without external dependencies.
 // ---------------------------------------------------------------------------
@@ -33,9 +33,9 @@ import * as path from 'path';
 // module-scope boundaries between instrumentation.ts and API routes)
 // ---------------------------------------------------------------------------
 
-const GLOBAL_KEY = '__symphony_scheduler__' as const;
-const GLOBAL_MOCK_KEY = '__symphony_mock__' as const;
-const GLOBAL_WATCHER_KEY = '__symphony_watcher__' as const;
+const GLOBAL_KEY = '__harmony_scheduler__' as const;
+const GLOBAL_MOCK_KEY = '__harmony_mock__' as const;
+const GLOBAL_WATCHER_KEY = '__harmony_watcher__' as const;
 
 function getGlobal<T>(key: string): T | null {
   return (globalThis as Record<string, unknown>)[key] as T | null ?? null;
@@ -58,22 +58,22 @@ export function isMockMode(): boolean {
 }
 
 /**
- * Start the Symphony service.
+ * Start the Harmony service.
  *
  * Loads WORKFLOW.md, resolves config, creates all layers, starts the
  * scheduler, and begins watching for workflow file changes.
  *
- * If LINEAR_API_KEY is missing or SYMPHONY_MOCK=true, starts in mock mode
+ * If LINEAR_API_KEY is missing or HARMONY_MOCK=true, starts in mock mode
  * with simulated issues and agent runs.
  */
-export async function startSymphony(
+export async function startHarmony(
   workflowPath?: string,
 ): Promise<void> {
   const resolvedPath = path.resolve(
-    workflowPath ?? process.env.SYMPHONY_WORKFLOW_PATH ?? './WORKFLOW.md',
+    workflowPath ?? process.env.HARMONY_WORKFLOW_PATH ?? './WORKFLOW.md',
   );
 
-  logger.info('Symphony starting', { workflow_path: resolvedPath });
+  logger.info('Harmony starting', { workflow_path: resolvedPath });
 
   // 1. Load workflow
   const workflow = await loadWorkflow(resolvedPath);
@@ -81,14 +81,14 @@ export async function startSymphony(
   const promptTemplate = workflow.promptTemplate;
 
   // 2. Determine mock mode
-  const forceMock = process.env.SYMPHONY_MOCK === 'true';
+  const forceMock = process.env.HARMONY_MOCK === 'true';
   const missingApiKey = !config.tracker.apiKey;
   const _mockMode = forceMock || missingApiKey;
   setGlobal(GLOBAL_MOCK_KEY, _mockMode);
 
   if (_mockMode) {
     logger.info('Starting in MOCK MODE (no external dependencies required)', {
-      reason: forceMock ? 'SYMPHONY_MOCK=true' : 'LINEAR_API_KEY not set',
+      reason: forceMock ? 'HARMONY_MOCK=true' : 'LINEAR_API_KEY not set',
     });
   }
 
@@ -100,7 +100,7 @@ export async function startSymphony(
         errors: validation.errors,
       });
       throw new Error(
-        `Symphony startup failed: ${validation.errors.join('; ')}`,
+        `Harmony startup failed: ${validation.errors.join('; ')}`,
       );
     }
   }
@@ -193,7 +193,7 @@ export async function startSymphony(
 
   setGlobal(GLOBAL_WATCHER_KEY, watcher);
 
-  logger.info('Symphony started successfully', {
+  logger.info('Harmony started successfully', {
     mock_mode: _mockMode,
     agent_runner: _mockMode ? 'mock' : config.claude.enabled ? 'claude' : 'codex',
     tracker_kind: _mockMode ? 'mock' : config.tracker.kind,
@@ -205,9 +205,9 @@ export async function startSymphony(
 }
 
 /**
- * Stop the Symphony service gracefully.
+ * Stop the Harmony service gracefully.
  */
-export async function stopSymphony(): Promise<void> {
+export async function stopHarmony(): Promise<void> {
   const watcher = getGlobal<FSWatcher>(GLOBAL_WATCHER_KEY);
   if (watcher) {
     await watcher.close();
@@ -218,7 +218,7 @@ export async function stopSymphony(): Promise<void> {
     await scheduler.stop();
     setGlobal(GLOBAL_KEY, null);
   }
-  logger.info('Symphony stopped');
+  logger.info('Harmony stopped');
 }
 
 // ---------------------------------------------------------------------------
