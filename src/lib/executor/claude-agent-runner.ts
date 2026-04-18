@@ -461,6 +461,7 @@ export class ClaudeAgentRunner implements AgentRunner {
       let totalOutputTokens = 0;
       let buffer = '';
       let resolved = false;
+      let claudeErrorMessage: string | null = null;
 
       const finish = (result: { success: boolean; error?: string }) => {
         if (resolved) return;
@@ -517,6 +518,11 @@ export class ClaudeAgentRunner implements AgentRunner {
             continue; // Skip non-JSON output
           }
 
+          // Capture fatal error result for surfacing on non-zero exit
+          if (event.type === 'result' && event.is_error && event.result) {
+            claudeErrorMessage = String(event.result);
+          }
+
           // Update last activity (parent scheduler uses this for stall detection)
           onUpdate({
             kind: 'message',
@@ -570,7 +576,9 @@ export class ClaudeAgentRunner implements AgentRunner {
         } else {
           finish({
             success: false,
-            error: `Claude process exited with code ${code}`,
+            error: claudeErrorMessage
+              ? `${claudeErrorMessage} (exit ${code})`
+              : `Claude process exited with code ${code}`,
           });
         }
       });

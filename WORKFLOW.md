@@ -43,7 +43,7 @@ claude:
   enabled: true
   runtime_timeout_ms: 1200000  # 20 minutes per task
   max_turns: 20
-  model: ""  # empty = use CLI default
+  model: "claude-sonnet-4-6"  # empty = use CLI default
 
 # Codex config kept for fallback (claude.enabled: false to use Codex instead)
 codex:
