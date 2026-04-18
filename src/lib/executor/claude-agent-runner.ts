@@ -230,6 +230,16 @@ export class ClaudeAgentRunner implements AgentRunner {
         });
         // Don't fail the whole run — code changes are still there
       }
+
+      // 5b. Close the GitHub issue
+      try {
+        await this.closeGitHubIssue(issue, config, onUpdate);
+      } catch (err) {
+        log.warn('Failed to close GitHub issue', {
+          session_id: sessionId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
     // 6. Run after_run hook (non-fatal)
@@ -709,6 +719,53 @@ export class ClaudeAgentRunner implements AgentRunner {
       config.hooks.timeoutMs,
       false, // Non-fatal
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Post-processing: close GitHub issue
+  // ---------------------------------------------------------------------------
+
+  private async closeGitHubIssue(
+    issue: Issue,
+    config: ServiceConfig,
+    onUpdate: (event: CodexUpdateEvent) => void,
+  ): Promise<void> {
+    const log = logger.forIssue(issue.id, issue.identifier);
+    const { apiKey, projectSlug } = config.tracker;
+    const [owner, repo] = projectSlug.split('/');
+
+    onUpdate({
+      kind: 'message',
+      role: 'system',
+      content: 'Closing GitHub issue...',
+    });
+
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/issues/${issue.id}`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `token ${apiKey}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/vnd.github.v3+json',
+        },
+        body: JSON.stringify({ state: 'closed' }),
+      },
+    );
+
+    if (response.ok) {
+      log.info('GitHub issue closed', { issue_id: issue.id });
+      onUpdate({
+        kind: 'message',
+        role: 'system',
+        content: `Issue ${issue.identifier} closed in GitHub`,
+      });
+    } else {
+      const errBody = await response.text();
+      throw new Error(
+        `GitHub API returned ${response.status}: ${errBody.slice(0, 300)}`,
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------

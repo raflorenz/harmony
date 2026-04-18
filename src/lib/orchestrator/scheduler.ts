@@ -460,22 +460,17 @@ export class Scheduler {
       // Bookkeeping
       this.state.completed.add(issueId);
 
-      if (!this.autoDispatch) {
-        // Manual mode: just mark completed and release claim, no continuation retry
-        log.info('Worker exited normally (manual mode), releasing claim');
-        releaseClaim(this.state, issueId);
-      } else {
-        // Schedule continuation retry (attempt 1, 1s delay) — Section 8.4
-        log.info('Worker exited normally, scheduling continuation check');
-        this.state = scheduleRetry(
-          this.state,
-          issueId,
-          1,
-          { identifier: entry.issueIdentifier, isContinuation: true },
-          this.config.agent.maxRetryBackoffMs,
-          (id) => this.onRetryTimer(id),
-        );
-      }
+      // Move to Review (retryAttempts) without an auto-retry timer.
+      // The claim is kept so the issue won't reappear in available (To Do).
+      log.info('Worker exited normally, moving to review');
+      this.state.retryAttempts.set(issueId, {
+        issueId,
+        identifier: entry.issueIdentifier,
+        attempt: entry.attempt ?? 0,
+        dueAtMs: Date.now(),
+        timerHandle: null,
+        error: 'Completed — awaiting review',
+      });
     } else {
       // Abnormal exit: exponential backoff retry
       const nextAttempt = (entry.attempt ?? 0) + 1;
@@ -599,6 +594,12 @@ export class Scheduler {
         entry.turnCount = event.turnNumber;
         if (entry.session) {
           entry.session.turnCount = event.turnNumber;
+        }
+        break;
+
+      case 'message':
+        if (event.content) {
+          entry.lastMessage = event.content;
         }
         break;
 

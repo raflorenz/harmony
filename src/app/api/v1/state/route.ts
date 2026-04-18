@@ -43,6 +43,7 @@ export function GET() {
         output_tokens: r.outputTokens,
         total_tokens: r.totalTokens,
       },
+      last_message: r.lastMessage,
     })),
     retrying: snapshot.retrying.map((r) => ({
       issue_id: r.issueId,

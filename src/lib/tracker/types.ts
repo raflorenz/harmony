@@ -281,6 +281,8 @@ export interface RunningEntry {
   turnCount: number;
   /** Epoch-ms of most recent codex event (for stall detection). */
   lastActivityMs: number;
+  /** Latest non-empty message from the agent (for UI display). */
+  lastMessage?: string;
 }
 
 /** Top-level orchestrator state that drives the reconciliation loop. */

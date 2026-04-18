@@ -15,6 +15,7 @@ interface RunningRow {
   started_at: string;
   seconds_running: number;
   tokens: { input_tokens: number; output_tokens: number; total_tokens: number };
+  last_message: string | null;
 }
 
 interface RetryRow {
@@ -705,6 +706,9 @@ export function Dashboard() {
                         <span>{formatDuration(r.seconds_running)}</span>
                         <span>{formatTokens(r.tokens.total_tokens)} tokens</span>
                       </div>
+                      {r.last_message && (
+                        <p className="text-[10px] text-zinc-400 dark:text-zinc-500 leading-relaxed line-clamp-2 mb-2 italic">{r.last_message}</p>
+                      )}
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={() => handleStop(r.issue_id)}
@@ -730,32 +734,47 @@ export function Dashboard() {
                   )}
 
                   {/* Review cards */}
-                  {col.key === 'review' && data?.retrying.map((r) => (
-                    <div
-                      key={r.issue_id}
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, r.issue_id, 'review')}
-                      className="rounded-lg border border-yellow-200 dark:border-yellow-800/30 bg-white dark:bg-zinc-900/60 p-3 cursor-grab active:cursor-grabbing hover:border-zinc-400 dark:hover:border-zinc-600 transition-colors group shadow-sm dark:shadow-none"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{r.issue_identifier}</span>
-                        <span className="text-[10px] text-yellow-600 dark:text-yellow-400">Retry #{r.attempt}</span>
+                  {col.key === 'review' && data?.retrying.map((r) => {
+                    const isCompleted = r.error?.startsWith('Completed');
+                    return (
+                      <div
+                        key={r.issue_id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, r.issue_id, 'review')}
+                        className={`rounded-lg border bg-white dark:bg-zinc-900/60 p-3 cursor-grab active:cursor-grabbing hover:border-zinc-400 dark:hover:border-zinc-600 transition-colors group shadow-sm dark:shadow-none ${
+                          isCompleted
+                            ? 'border-green-200 dark:border-green-800/30'
+                            : 'border-yellow-200 dark:border-yellow-800/30'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{r.issue_identifier}</span>
+                          {isCompleted ? (
+                            <span className="text-[10px] text-green-600 dark:text-green-400 font-medium">Completed</span>
+                          ) : (
+                            <span className="text-[10px] text-yellow-600 dark:text-yellow-400">Retry #{r.attempt}</span>
+                          )}
+                        </div>
+                        {r.error && (
+                          <p className={`text-[10px] leading-relaxed line-clamp-2 mb-2 ${
+                            isCompleted
+                              ? 'text-green-600 dark:text-green-400/80'
+                              : 'text-red-500 dark:text-red-400/80'
+                          }`}>{r.error}</p>
+                        )}
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-zinc-500">{isCompleted ? 'Finished' : 'Due'} {relativeTime(r.due_at)}</span>
+                          <button
+                            onClick={() => handleDelete(r.issue_id, r.issue_identifier)}
+                            disabled={loadingAction === `delete-${r.issue_id}`}
+                            className="px-2 py-0.5 text-[10px] rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-500 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-700 hover:text-red-500 dark:hover:text-red-400 transition-colors disabled:opacity-50 opacity-0 group-hover:opacity-100"
+                          >
+                            {loadingAction === `delete-${r.issue_id}` ? '...' : 'Delete'}
+                          </button>
+                        </div>
                       </div>
-                      {r.error && (
-                        <p className="text-[10px] text-red-500 dark:text-red-400/80 leading-relaxed line-clamp-2 mb-2">{r.error}</p>
-                      )}
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-zinc-500">Due {relativeTime(r.due_at)}</span>
-                        <button
-                          onClick={() => handleDelete(r.issue_id, r.issue_identifier)}
-                          disabled={loadingAction === `delete-${r.issue_id}`}
-                          className="px-2 py-0.5 text-[10px] rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-500 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-700 hover:text-red-500 dark:hover:text-red-400 transition-colors disabled:opacity-50 opacity-0 group-hover:opacity-100"
-                        >
-                          {loadingAction === `delete-${r.issue_id}` ? '...' : 'Delete'}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {col.key === 'review' && (!data || data.retrying.length === 0) && (
                     <div className="text-center py-8 text-zinc-600 text-xs">
                       No items for review
