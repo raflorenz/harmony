@@ -89,7 +89,26 @@ interface UnifiedIssue {
   finishedAt: string | null;
 }
 
-type KanbanColumn = 'todo' | 'in-progress' | 'review' | 'done';
+type KanbanColumn = string;
+
+interface BoardColumn {
+  key: KanbanColumn;
+  label: string;
+  accent: string;
+  laneKey?: LaneState;
+  builtin?: boolean;
+}
+
+const DEFAULT_BOARD_COLUMNS: BoardColumn[] = [
+  { key: 'todo', laneKey: 'todo', label: 'To do', accent: '#7e8a95', builtin: true },
+  { key: 'in-progress', laneKey: 'running', label: 'Running', accent: '#6bd69c', builtin: true },
+  { key: 'review', laneKey: 'retrying', label: 'Retrying', accent: '#f5c050', builtin: true },
+  { key: 'done', laneKey: 'done', label: 'Done', accent: '#7dd3a1', builtin: true },
+];
+
+const BOARD_COLUMNS_STORAGE_KEY = 'harmony:boardColumns:v1';
+const COLUMN_ACCENT_PALETTE = ['#9bb7ff', '#c89bff', '#f59bb7', '#9be8ff', '#ffc89b', '#b7f59b'];
+const COLUMN_DRAG_MIME = 'application/x-harmony-column';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -193,7 +212,12 @@ type IconName =
   | 'sun'
   | 'moon'
   | 'chevronL'
-  | 'chevronR';
+  | 'chevronR'
+  | 'settings'
+  | 'grid'
+  | 'doc'
+  | 'columns'
+  | 'grip';
 
 function Icon({
   name,
@@ -282,6 +306,44 @@ function Icon({
     moon: <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />,
     chevronL: <polyline points="15 18 9 12 15 6" />,
     chevronR: <polyline points="9 18 15 12 9 6" />,
+    settings: (
+      <>
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </>
+    ),
+    grid: (
+      <>
+        <rect x="3" y="3" width="7" height="7" rx="1.5" />
+        <rect x="14" y="3" width="7" height="7" rx="1.5" />
+        <rect x="3" y="14" width="7" height="7" rx="1.5" />
+        <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      </>
+    ),
+    doc: (
+      <>
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+      </>
+    ),
+    columns: (
+      <>
+        <rect x="3" y="4" width="6" height="16" rx="1.5" />
+        <rect x="11" y="4" width="6" height="10" rx="1.5" />
+        <line x1="19" y1="14" x2="19" y2="20" />
+        <line x1="16" y1="17" x2="22" y2="17" />
+      </>
+    ),
+    grip: (
+      <>
+        <circle cx="9" cy="6" r="1" />
+        <circle cx="9" cy="12" r="1" />
+        <circle cx="9" cy="18" r="1" />
+        <circle cx="15" cy="6" r="1" />
+        <circle cx="15" cy="12" r="1" />
+        <circle cx="15" cy="18" r="1" />
+      </>
+    ),
   };
 
   return (
@@ -414,15 +476,105 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [available, setAvailable] = useState<AvailableIssue[]>([]);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState({ title: '', description: '', priority: '', labels: '' });
   const [addError, setAddError] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [doneItems, setDoneItems] = useState<DoneItem[]>([]);
   const [dragOverColumn, setDragOverColumn] = useState<KanbanColumn | null>(null);
   const [syncLoading, setSyncLoading] = useState(false);
   const [newIssueCount, setNewIssueCount] = useState(0);
+  const [collapsedColumns, setCollapsedColumns] = useState<Set<KanbanColumn>>(
+    () => new Set(),
+  );
+
+  const [boardColumns, setBoardColumns] = useState<BoardColumn[]>(DEFAULT_BOARD_COLUMNS);
+  const [boardColumnsHydrated, setBoardColumnsHydrated] = useState(false);
+  const [addingColumn, setAddingColumn] = useState(false);
+  const [newColumnLabel, setNewColumnLabel] = useState('');
+  const [draggedColumnKey, setDraggedColumnKey] = useState<KanbanColumn | null>(null);
+  const [columnDropIndex, setColumnDropIndex] = useState<number | null>(null);
+
+  // Load persisted column layout on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(BOARD_COLUMNS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as BoardColumn[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Ensure all builtin columns are still present (by key); append any missing.
+          const seen = new Set(parsed.map((c) => c.key));
+          const merged = [...parsed];
+          for (const b of DEFAULT_BOARD_COLUMNS) {
+            if (!seen.has(b.key)) merged.push(b);
+          }
+          setBoardColumns(merged);
+        }
+      }
+    } catch {
+      /* ignore malformed storage */
+    }
+    setBoardColumnsHydrated(true);
+  }, []);
+
+  // Persist column layout after hydration
+  useEffect(() => {
+    if (!boardColumnsHydrated) return;
+    try {
+      localStorage.setItem(BOARD_COLUMNS_STORAGE_KEY, JSON.stringify(boardColumns));
+    } catch {
+      /* quota / privacy mode */
+    }
+  }, [boardColumns, boardColumnsHydrated]);
+
+  const handleAddColumn = useCallback(() => {
+    const label = newColumnLabel.trim();
+    if (!label) return;
+    setBoardColumns((prev) => {
+      const customCount = prev.filter((c) => !c.builtin).length;
+      const accent = COLUMN_ACCENT_PALETTE[customCount % COLUMN_ACCENT_PALETTE.length];
+      const baseKey = 'col-' + label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      let key = baseKey || 'col-' + Date.now().toString(36);
+      const taken = new Set(prev.map((c) => c.key));
+      let i = 2;
+      while (taken.has(key)) key = baseKey + '-' + i++;
+      return [...prev, { key, label, accent }];
+    });
+    setNewColumnLabel('');
+    setAddingColumn(false);
+  }, [newColumnLabel]);
+
+  const handleDeleteColumn = useCallback((key: KanbanColumn) => {
+    setBoardColumns((prev) => prev.filter((c) => c.key !== key));
+    setCollapsedColumns((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  }, []);
+
+  const reorderColumn = useCallback((fromKey: KanbanColumn, toKey: KanbanColumn) => {
+    if (fromKey === toKey) return;
+    setBoardColumns((prev) => {
+      const fromIdx = prev.findIndex((c) => c.key === fromKey);
+      const toIdx = prev.findIndex((c) => c.key === toKey);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    });
+  }, []);
+
+  const toggleColumnCollapsed = useCallback((key: KanbanColumn) => {
+    setCollapsedColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   // Kanban+ state
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -489,6 +641,16 @@ export function Dashboard() {
   useEffect(() => {
     displayedIdsRef.current = new Set(available.map((a) => a.id));
   }, [available]);
+
+  // Close sidebar on Esc
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSidebarOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sidebarOpen]);
 
   // Initial fetch + 3s polling (preserved)
   useEffect(() => {
@@ -636,33 +798,6 @@ export function Dashboard() {
     }
   };
 
-  const handleAutoDispatch = async (enabled: boolean) => {
-    try {
-      await fetch('/api/v1/auto-dispatch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled }),
-      });
-      await fetchState();
-    } catch {
-      /* silent */
-    }
-  };
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await fetch('/api/v1/refresh', { method: 'POST' });
-      setTimeout(async () => {
-        await fetchState();
-        await fetchAvailable();
-        setRefreshing(false);
-      }, 1500);
-    } catch {
-      setRefreshing(false);
-    }
-  };
-
   const handleSyncIssues = async () => {
     setSyncLoading(true);
     try {
@@ -717,19 +852,52 @@ export function Dashboard() {
     e.dataTransfer.effectAllowed = 'move';
   };
 
+  const handleColumnDragStart = (e: React.DragEvent, columnKey: KanbanColumn) => {
+    e.dataTransfer.setData(COLUMN_DRAG_MIME, columnKey);
+    e.dataTransfer.setData('text/plain', `column:${columnKey}`);
+    e.dataTransfer.effectAllowed = 'move';
+    setDraggedColumnKey(columnKey);
+  };
+
+  const handleColumnDragEnd = () => {
+    setDraggedColumnKey(null);
+    setColumnDropIndex(null);
+  };
+
+  const isColumnDrag = (e: React.DragEvent) =>
+    e.dataTransfer.types.includes(COLUMN_DRAG_MIME);
+
   const handleDragOver = (e: React.DragEvent, column: KanbanColumn) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    setDragOverColumn(column);
+    if (isColumnDrag(e)) {
+      setColumnDropIndex(boardColumns.findIndex((c) => c.key === column));
+      setDragOverColumn(null);
+    } else {
+      setDragOverColumn(column);
+    }
   };
 
-  const handleDragLeave = () => setDragOverColumn(null);
+  const handleDragLeave = () => {
+    setDragOverColumn(null);
+  };
 
   const handleDrop = async (e: React.DragEvent, toColumn: KanbanColumn) => {
     e.preventDefault();
     setDragOverColumn(null);
+    setColumnDropIndex(null);
+
+    if (isColumnDrag(e)) {
+      const fromKey = e.dataTransfer.getData(COLUMN_DRAG_MIME);
+      setDraggedColumnKey(null);
+      if (fromKey && fromKey !== toColumn) reorderColumn(fromKey, toColumn);
+      return;
+    }
+
+    const raw = e.dataTransfer.getData('text/plain');
+    if (!raw || raw.startsWith('column:')) return;
     try {
-      const payload = JSON.parse(e.dataTransfer.getData('text/plain')) as {
+      const payload = JSON.parse(raw) as {
         issueId: string;
         fromColumn: KanbanColumn;
       };
@@ -839,217 +1007,250 @@ export function Dashboard() {
 
   const selected = unifiedIssues.find((i) => i.id === selectedId) ?? null;
 
-  const autoDispatch = data?.auto_dispatch ?? false;
   const runningCount = data?.counts.running ?? 0;
   const retryingCount = data?.counts.retrying ?? 0;
+  const rightRailOpen = runningCount > 0 || retryingCount > 0;
 
-  // ---- Swim lanes (only applied in todo column — running/retrying not priority-tagged by API) ----
-  const lanes: { key: string; label: string; test: (i: UnifiedIssue) => boolean; tint: string }[] = [
-    { key: 'urgent', label: 'Urgent', tint: '#e5484d', test: (i) => i.priority === 1 },
-    { key: 'high', label: 'High', tint: '#f5a524', test: (i) => i.priority === 2 },
-    {
-      key: 'rest',
-      label: 'Medium & Low',
-      tint: '#7e8a95',
-      test: (i) => i.priority == null || i.priority > 2 || i.priority === 0,
-    },
-  ];
-
-  // Columns
+  // Columns — derived from board layout + issue lane counts
   const columns: {
     key: KanbanColumn;
-    laneKey: LaneState;
+    laneKey?: LaneState;
     label: string;
     accent: string;
     count: number;
-  }[] = [
-    { key: 'todo', laneKey: 'todo', label: 'To do', accent: '#7e8a95', count: byState.todo.length },
-    { key: 'in-progress', laneKey: 'running', label: 'Running', accent: '#6bd69c', count: byState.running.length },
-    { key: 'review', laneKey: 'retrying', label: 'Retrying', accent: '#f5c050', count: byState.retrying.length },
-    { key: 'done', laneKey: 'done', label: 'Done', accent: '#7dd3a1', count: byState.done.length },
-  ];
+    builtin: boolean;
+  }[] = boardColumns.map((c) => ({
+    key: c.key,
+    laneKey: c.laneKey,
+    label: c.label,
+    accent: c.accent,
+    count: c.laneKey ? byState[c.laneKey].length : 0,
+    builtin: !!c.builtin,
+  }));
 
   // ---- Render ----
 
   const rootStyle: CSSProperties = {
-    minHeight: '100vh',
+    height: '100vh',
     background: 'var(--k-bg)',
     color: 'var(--k-fg)',
     display: 'grid',
-    gridTemplateColumns: `${sidebarOpen ? 220 : 28}px 1fr 360px`,
+    gridTemplateColumns: rightRailOpen ? '56px 1fr 360px' : '56px 1fr',
     gridTemplateRows: '56px 1fr',
     fontFamily: 'var(--font-inter), system-ui, sans-serif',
-    transition: 'grid-template-columns 0.2s',
+    overflow: 'hidden',
   };
 
   return (
     <div style={rootStyle}>
-      {/* Sidebar */}
-      <aside
+      {/* Narrow persistent nav sidebar */}
+      <nav
         style={{
+          gridColumn: '1',
           gridRow: '1 / span 2',
           borderRight: '1px solid var(--k-border)',
           background: 'var(--k-bg-panel)',
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden',
+          alignItems: 'center',
+          padding: '12px 0',
+          gap: 6,
+          zIndex: 20,
         }}
       >
-        {sidebarOpen ? (
-          <div style={{ padding: '14px 14px', display: 'flex', flexDirection: 'column', gap: 14, flex: 1, overflowY: 'auto' }}
-            className="scroll-kanban">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: '50%',
-                  background: 'oklch(0.72 0.16 55)',
-                  boxShadow: '0 0 10px oklch(0.72 0.16 55 / 0.7)',
-                }}
-              />
-              <span
-                style={{
-                  fontFamily: 'var(--font-jetbrains-mono), monospace',
-                  fontWeight: 700,
-                  letterSpacing: '0.02em',
-                  fontSize: 13,
-                  color: 'var(--k-fg)',
-                  flex: 1,
-                }}
-              >
-                SYMPHONY
-              </span>
-              <button
-                onClick={() => setSidebarOpen(false)}
-                title="Hide sidebar"
-                style={iconButtonStyle}
-              >
-                <Icon name="chevronL" size={13} />
-              </button>
-            </div>
+        <div
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 8,
+            background: 'var(--k-surface-2)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontFamily: 'var(--font-jetbrains-mono), monospace',
+            fontWeight: 700,
+            fontSize: 12,
+            letterSpacing: '-0.02em',
+            color: 'var(--k-fg)',
+            marginBottom: 6,
+          }}
+          title="Symphony"
+        >
+          sy
+        </div>
+        <button
+          title="Kanban board"
+          style={navIconButtonStyle(true)}
+        >
+          <Icon name="grid" size={15} />
+        </button>
+        <button
+          onClick={() => setShowAddForm((s) => !s)}
+          title="New issue"
+          style={navIconButtonStyle(false)}
+        >
+          <Icon name="doc" size={15} />
+        </button>
+        <button
+          onClick={() => setAddingColumn((s) => !s)}
+          title={addingColumn ? 'Cancel add column' : 'Add column'}
+          style={navIconButtonStyle(addingColumn)}
+        >
+          <Icon name="columns" size={15} />
+        </button>
+        <div style={{ flex: 1 }} />
+        <button
+          onClick={toggleTheme}
+          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          style={navIconButtonStyle(false)}
+        >
+          <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={15} />
+        </button>
+        <button
+          onClick={() => setSidebarOpen(true)}
+          title="Settings"
+          style={navIconButtonStyle(false)}
+        >
+          <Icon name="settings" size={15} />
+        </button>
+      </nav>
 
-            {data?.mock_mode && (
-              <div
-                style={{
-                  fontSize: 10,
-                  fontFamily: 'var(--font-jetbrains-mono), monospace',
-                  color: '#f5c050',
-                  background: 'rgba(245,192,80,0.1)',
-                  border: '1px solid rgba(245,192,80,0.3)',
-                  padding: '4px 8px',
-                  borderRadius: 4,
-                  alignSelf: 'flex-start',
-                  letterSpacing: '0.12em',
-                  textTransform: 'uppercase',
-                  fontWeight: 700,
-                }}
-              >
-                Mock mode
-              </div>
-            )}
-
-            <div style={sectionLabelStyle}>Overview</div>
-            <div style={{ display: 'grid', gap: 10 }}>
-              <KMetric label="Running" value={String(runningCount)} accent="#6bd69c" pulse={runningCount > 0} />
-              <KMetric label="Retrying" value={String(retryingCount)} accent="#f5c050" />
-              <KMetric
-                label="Tokens"
-                value={formatTokens(data?.codex_totals.total_tokens ?? 0)}
-                accent="#9bb7ff"
-              />
-              <KMetric
-                label="Runtime"
-                value={formatDuration(data?.codex_totals.seconds_running ?? 0)}
-                accent="#c89bff"
-              />
-            </div>
-
-            <div style={sectionLabelStyle}>Controls</div>
+      {/* Sidebar drawer + backdrop */}
+      {sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.35)',
+            zIndex: 40,
+          }}
+        />
+      )}
+      <aside
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: 280,
+          height: '100vh',
+          borderRight: '1px solid var(--k-border)',
+          background: 'var(--k-bg-panel)',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
+          transition: 'transform 0.2s ease',
+          zIndex: 50,
+        }}
+      >
+        <div
+          style={{ padding: '14px 14px', display: 'flex', flexDirection: 'column', gap: 14, flex: 1, overflowY: 'auto' }}
+          className="scroll-kanban"
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: 'oklch(0.72 0.16 55)',
+                boxShadow: '0 0 10px oklch(0.72 0.16 55 / 0.7)',
+              }}
+            />
+            <span
+              style={{
+                fontFamily: 'var(--font-jetbrains-mono), monospace',
+                fontWeight: 700,
+                letterSpacing: '0.02em',
+                fontSize: 13,
+                color: 'var(--k-fg)',
+                flex: 1,
+              }}
+            >
+              SYMPHONY
+            </span>
             <button
-              onClick={() => handleAutoDispatch(!autoDispatch)}
-              style={{
-                padding: '8px 12px',
-                borderRadius: 8,
-                background: autoDispatch
-                  ? 'rgba(107,214,156,0.12)'
-                  : 'var(--k-surface-1)',
-                color: autoDispatch ? '#6bd69c' : 'var(--k-fg-muted)',
-                border: autoDispatch
-                  ? '1px solid rgba(107,214,156,0.3)'
-                  : '1px solid var(--k-border)',
-                fontFamily: 'var(--font-jetbrains-mono), monospace',
-                fontSize: 11,
-                letterSpacing: '0.04em',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
+              onClick={() => setSidebarOpen(false)}
+              title="Close sidebar"
+              style={iconButtonStyle}
             >
-              <span>auto-dispatch</span>
-              <span style={{ fontWeight: 700 }}>{autoDispatch ? 'ON' : 'OFF'}</span>
+              <Icon name="x" size={13} />
             </button>
-
-            <SideBtn
-              icon="refresh"
-              label={refreshing ? 'polling…' : 'Force poll'}
-              onClick={handleRefresh}
-              disabled={refreshing}
-              spin={refreshing}
-            />
-            <SideBtn
-              icon="plus"
-              label="Add issue"
-              onClick={() => setShowAddForm((s) => !s)}
-            />
-
-            {/* Token breakdown */}
-            {data && data.codex_totals.total_tokens > 0 && (
-              <>
-                <div style={sectionLabelStyle}>Token usage</div>
-                <div style={{ display: 'grid', gap: 8 }}>
-                  <TokenRow label="Input" value={formatTokens(data.codex_totals.input_tokens)} color="#9bb7ff" />
-                  <TokenRow label="Output" value={formatTokens(data.codex_totals.output_tokens)} color="#6bd69c" />
-                  <TokenRow label="Total" value={formatTokens(data.codex_totals.total_tokens)} color="#c89bff" />
-                </div>
-              </>
-            )}
-
-            <div
-              style={{
-                marginTop: 'auto',
-                paddingTop: 10,
-                borderTop: '1px solid var(--k-border)',
-                fontSize: 11,
-                color: 'var(--k-fg-dim)',
-                fontFamily: 'var(--font-jetbrains-mono), monospace',
-              }}
-            >
-              {data?.generated_at && <div>updated {relativeTime(data.generated_at)}</div>}
-              <div>project harmony</div>
-            </div>
           </div>
-        ) : (
-          <button
-            onClick={() => setSidebarOpen(true)}
-            title="Show sidebar"
+
+          <div style={sectionLabelStyle}>Settings</div>
+
+          <SettingsGroup title="Tracker">
+            <SettingRow label="kind" value="github" />
+            <SettingRow label="api_key" value="$GITHUB_TOKEN" />
+            <SettingRow label="project_slug" value="raflorenz/harmony" />
+            <SettingRow label="active_states" value="Todo, In Progress" />
+            <SettingRow
+              label="terminal_states"
+              value="Done, Closed, Cancelled, Canceled, Duplicate"
+            />
+          </SettingsGroup>
+
+          <SettingsGroup title="Polling">
+            <SettingRow label="interval_ms" value="30000" />
+          </SettingsGroup>
+
+          <SettingsGroup title="Workspace">
+            <SettingRow label="root" value="~/harmony_workspaces" />
+          </SettingsGroup>
+
+          <SettingsGroup title="Hooks">
+            <SettingRow label="after_create" value='echo "Workspace created"' />
+            <SettingRow label="before_run" value='echo "Starting agent run"' />
+            <SettingRow label="after_run" value='echo "Agent run finished"' />
+            <SettingRow label="timeout_ms" value="60000" />
+          </SettingsGroup>
+
+          <SettingsGroup title="Agent">
+            <SettingRow label="max_concurrent_agents" value="3" />
+            <SettingRow label="max_turns" value="20" />
+            <SettingRow label="max_retry_backoff_ms" value="300000" />
+          </SettingsGroup>
+
+          <SettingsGroup title="Claude">
+            <SettingRow label="enabled" value="true" />
+            <SettingRow label="runtime_timeout_ms" value="300000" />
+            <SettingRow label="max_turns" value="20" />
+            <SettingRow label="model" value="claude-sonnet-4-6" />
+          </SettingsGroup>
+
+          <SettingsGroup title="Codex">
+            <SettingRow label="command" value="codex app-server" />
+            <SettingRow label="approval_policy" value="auto-edit" />
+            <SettingRow label="turn_timeout_ms" value="3600000" />
+            <SettingRow label="stall_timeout_ms" value="300000" />
+          </SettingsGroup>
+
+          <SettingsGroup title="Server">
+            <SettingRow label="port" value="3000" />
+          </SettingsGroup>
+
+          <div
             style={{
-              ...iconButtonStyle,
-              margin: '14px auto',
-              width: 24,
-              height: 24,
+              marginTop: 'auto',
+              paddingTop: 10,
+              borderTop: '1px solid var(--k-border)',
+              fontSize: 11,
+              color: 'var(--k-fg-dim)',
+              fontFamily: 'var(--font-jetbrains-mono), monospace',
             }}
           >
-            <Icon name="chevronR" size={13} />
-          </button>
-        )}
+            project harmony
+          </div>
+        </div>
       </aside>
 
       {/* Header */}
       <header
         style={{
-          gridColumn: '2 / span 2',
+          gridColumn: rightRailOpen ? '2 / span 2' : '2',
+          gridRow: '1',
           display: 'flex',
           alignItems: 'center',
           gap: 16,
@@ -1142,149 +1343,281 @@ export function Dashboard() {
           <Icon name="plus" size={13} />
           {showAddForm ? 'Cancel' : 'Add issue'}
         </button>
-
-        <button
-          onClick={toggleTheme}
-          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          style={iconButtonStyle}
-        >
-          <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={14} />
-        </button>
       </header>
 
       {/* Main content */}
       <main
         style={{
-          padding: '16px 20px',
-          overflowY: 'auto',
-          overflowX: 'hidden',
+          gridColumn: '2',
+          gridRow: '2',
+          display: 'flex',
+          flexDirection: 'column',
           minWidth: 0,
+          minHeight: 0,
+          overflow: 'hidden',
         }}
-        className="scroll-kanban"
       >
-        {error && (
-          <div
-            style={{
-              marginBottom: 12,
-              padding: '8px 12px',
-              borderRadius: 8,
-              background: 'rgba(238,96,96,0.08)',
-              border: '1px solid rgba(238,96,96,0.25)',
-              color: '#ee6060',
-              fontSize: 12,
-              fontFamily: 'var(--font-jetbrains-mono), monospace',
-            }}
-          >
-            {error}
-          </div>
-        )}
-
-        {showAddForm && (
-          <AddIssueForm
-            form={addForm}
-            setForm={setAddForm}
-            onSubmit={handleAddIssue}
-            loading={loadingAction === 'add-issue'}
-            error={addError}
-            onClose={() => {
-              setShowAddForm(false);
-              setAddError(null);
-            }}
-          />
-        )}
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-            gridAutoRows: 'auto',
-            gap: 12,
-          }}
-        >
-          {/* Column headers */}
-          {columns.map((col) => (
-            <div
-              key={col.key + 'h'}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 4px' }}
-            >
-              <span
+        {(error || showAddForm) && (
+          <div style={{ padding: '12px 20px 0' }}>
+            {error && (
+              <div
                 style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: '50%',
-                  background: col.accent,
-                  boxShadow: `0 0 8px ${col.accent}80`,
-                }}
-              />
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--k-fg)' }}>{col.label}</span>
-              <span
-                style={{
-                  fontSize: 11,
-                  color: 'var(--k-fg-dim)',
+                  marginBottom: 12,
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  background: 'rgba(238,96,96,0.08)',
+                  border: '1px solid rgba(238,96,96,0.25)',
+                  color: '#ee6060',
+                  fontSize: 12,
                   fontFamily: 'var(--font-jetbrains-mono), monospace',
                 }}
               >
-                {col.count}
-              </span>
-            </div>
-          ))}
+                {error}
+              </div>
+            )}
+            {showAddForm && (
+              <AddIssueForm
+                form={addForm}
+                setForm={setAddForm}
+                onSubmit={handleAddIssue}
+                loading={loadingAction === 'add-issue'}
+                error={addError}
+                onClose={() => {
+                  setShowAddForm(false);
+                  setAddError(null);
+                }}
+              />
+            )}
+          </div>
+        )}
 
-          {/* Swim lanes × columns */}
-          {lanes.map((lane) =>
-            columns.map((col) => {
-              const items =
-                col.laneKey === 'todo'
-                  ? byState.todo.filter(lane.test)
-                  : lane.key === 'urgent'
-                  ? byState[col.laneKey] // non-todo lanes get the full column in the first swim row
-                  : [];
+        <div
+          className="scroll-kanban"
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            alignItems: 'stretch',
+            gap: 10,
+            padding: '16px 20px',
+            overflowX: 'auto',
+            overflowY: 'hidden',
+          }}
+        >
+          {columns.map((col) => {
+            const collapsed = collapsedColumns.has(col.key);
+            const isDragTarget = dragOverColumn === col.key;
+            const items: UnifiedIssue[] = col.laneKey ? byState[col.laneKey] : [];
+            const isDragging = draggedColumnKey === col.key;
+            const isColumnDropTarget =
+              columnDropIndex !== null &&
+              boardColumns[columnDropIndex]?.key === col.key &&
+              draggedColumnKey !== null &&
+              draggedColumnKey !== col.key;
 
-              const isDragTarget = dragOverColumn === col.key;
-
+            if (collapsed) {
               return (
                 <div
-                  key={lane.key + '-' + col.key}
+                  key={col.key}
                   onDragOver={(e) => handleDragOver(e, col.key)}
                   onDragLeave={handleDragLeave}
                   onDrop={(e) => handleDrop(e, col.key)}
+                  onClick={() => toggleColumnCollapsed(col.key)}
+                  title={`Expand ${col.label}`}
                   style={{
-                    border: isDragTarget
+                    width: 42,
+                    flexShrink: 0,
+                    border: isColumnDropTarget
+                      ? '1px dashed oklch(0.72 0.16 55)'
+                      : isDragTarget
                       ? '1px dashed oklch(0.72 0.16 55)'
                       : '1px solid var(--k-border)',
                     borderRadius: 10,
                     background: isDragTarget
                       ? 'oklch(0.72 0.16 55 / 0.06)'
                       : 'var(--k-surface-1)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    padding: '10px 0',
+                    gap: 10,
+                    cursor: 'pointer',
+                    opacity: isDragging ? 0.4 : 1,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      background: col.accent,
+                      boxShadow: `0 0 8px ${col.accent}80`,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <div
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      writingMode: 'vertical-rl',
+                      transform: 'rotate(180deg)',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: '0.18em',
+                      textTransform: 'uppercase',
+                      color: 'var(--k-fg-muted)',
+                      fontFamily: 'var(--font-jetbrains-mono), monospace',
+                      userSelect: 'none',
+                    }}
+                  >
+                    {col.label}
+                  </div>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: 'var(--k-fg-dim)',
+                      fontFamily: 'var(--font-jetbrains-mono), monospace',
+                    }}
+                  >
+                    {col.count}
+                  </span>
+                </div>
+              );
+            }
+
+            return (
+              <div
+                key={col.key}
+                onDragOver={(e) => handleDragOver(e, col.key)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, col.key)}
+                style={{
+                  width: 300,
+                  flexShrink: 0,
+                  border: isColumnDropTarget
+                    ? '1px dashed oklch(0.72 0.16 55)'
+                    : isDragTarget
+                    ? '1px dashed oklch(0.72 0.16 55)'
+                    : '1px solid var(--k-border)',
+                  borderRadius: 10,
+                  background: isDragTarget
+                    ? 'oklch(0.72 0.16 55 / 0.06)'
+                    : 'var(--k-surface-1)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  minHeight: 0,
+                  opacity: isDragging ? 0.4 : 1,
+                  transition: 'opacity .12s',
+                }}
+              >
+                <div
+                  draggable
+                  onDragStart={(e) => handleColumnDragStart(e, col.key)}
+                  onDragEnd={handleColumnDragEnd}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '10px 12px',
+                    borderBottom: '1px solid var(--k-border)',
+                    cursor: 'grab',
+                    userSelect: 'none',
+                  }}
+                  title="Drag to reorder column"
+                >
+                  <span
+                    style={{
+                      color: 'var(--k-fg-dim)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      marginRight: -2,
+                    }}
+                  >
+                    <Icon name="grip" size={12} />
+                  </span>
+                  <span
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      background: col.accent,
+                      boxShadow: `0 0 8px ${col.accent}80`,
+                    }}
+                  />
+                  <span
+                    style={{ fontSize: 13, fontWeight: 600, color: 'var(--k-fg)' }}
+                  >
+                    {col.label}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--k-fg-dim)',
+                      fontFamily: 'var(--font-jetbrains-mono), monospace',
+                    }}
+                  >
+                    {col.count}
+                  </span>
+                  <span style={{ flex: 1 }} />
+                  {!col.builtin && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteColumn(col.key);
+                      }}
+                      title={`Delete ${col.label}`}
+                      style={{
+                        padding: 4,
+                        borderRadius: 4,
+                        background: 'transparent',
+                        border: 0,
+                        color: 'var(--k-fg-muted)',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Icon name="trash" size={13} />
+                    </button>
+                  )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleColumnCollapsed(col.key);
+                    }}
+                    title={`Collapse ${col.label}`}
+                    style={{
+                      padding: 4,
+                      borderRadius: 4,
+                      background: 'transparent',
+                      border: 0,
+                      color: 'var(--k-fg-muted)',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Icon name="chevronL" size={14} />
+                  </button>
+                </div>
+
+                <div
+                  className="scroll-kanban"
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    overflowY: 'auto',
+                    overflowX: 'hidden',
                     padding: 8,
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 6,
-                    minHeight: 120,
                   }}
                 >
-                  {col.key === 'todo' && (
-                    <div
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        fontSize: 9,
-                        letterSpacing: '0.1em',
-                        textTransform: 'uppercase',
-                        color: lane.tint,
-                        fontFamily: 'var(--font-jetbrains-mono), monospace',
-                        padding: '2px 6px',
-                        marginBottom: 2,
-                        alignSelf: 'flex-start',
-                        background: lane.tint + '14',
-                        borderRadius: 4,
-                      }}
-                    >
-                      <span style={{ width: 5, height: 5, borderRadius: '50%', background: lane.tint }} />
-                      {lane.label}
-                    </div>
-                  )}
-
                   {items.map((issue) => (
                     <KCard
                       key={issue.id}
@@ -1314,41 +1647,162 @@ export function Dashboard() {
                         fontFamily: 'var(--font-jetbrains-mono), monospace',
                       }}
                     >
-                      —
+                      {col.builtin ? '—' : 'empty'}
                     </div>
                   )}
                 </div>
-              );
-            })
+              </div>
+            );
+          })}
+
+          {addingColumn ? (
+            <div
+              style={{
+                width: 240,
+                flexShrink: 0,
+                border: '1px dashed oklch(0.72 0.16 55)',
+                borderRadius: 10,
+                background: 'var(--k-surface-1)',
+                display: 'flex',
+                flexDirection: 'column',
+                padding: 10,
+                gap: 8,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 10,
+                  color: 'var(--k-fg-dim)',
+                  fontFamily: 'var(--font-jetbrains-mono), monospace',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                }}
+              >
+                New column
+              </div>
+              <input
+                autoFocus
+                type="text"
+                value={newColumnLabel}
+                onChange={(e) => setNewColumnLabel(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleAddColumn();
+                  else if (e.key === 'Escape') {
+                    setAddingColumn(false);
+                    setNewColumnLabel('');
+                  }
+                }}
+                placeholder="Column name"
+                style={{
+                  width: '100%',
+                  padding: '7px 9px',
+                  fontSize: 12,
+                  borderRadius: 6,
+                  background: 'var(--k-bg)',
+                  border: '1px solid var(--k-border)',
+                  color: 'var(--k-fg)',
+                  fontFamily: 'inherit',
+                  outline: 'none',
+                }}
+              />
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  onClick={handleAddColumn}
+                  disabled={!newColumnLabel.trim()}
+                  style={{
+                    flex: 1,
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    background: 'oklch(0.72 0.16 55)',
+                    color: '#0b0c0d',
+                    border: 0,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    cursor: newColumnLabel.trim() ? 'pointer' : 'default',
+                    opacity: newColumnLabel.trim() ? 1 : 0.5,
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Add
+                </button>
+                <button
+                  onClick={() => {
+                    setAddingColumn(false);
+                    setNewColumnLabel('');
+                  }}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    background: 'transparent',
+                    border: '1px solid var(--k-border)',
+                    color: 'var(--k-fg-muted)',
+                    fontSize: 11,
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setAddingColumn(true)}
+              title="Add column"
+              style={{
+                width: 160,
+                flexShrink: 0,
+                border: '1px dashed var(--k-border)',
+                borderRadius: 10,
+                background: 'transparent',
+                color: 'var(--k-fg-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                fontSize: 12,
+                fontFamily: 'inherit',
+                alignSelf: 'stretch',
+              }}
+            >
+              <Icon name="plus" size={13} />
+              Add column
+            </button>
           )}
         </div>
       </main>
 
-      {/* Right rail — focused run detail */}
-      <section
-        style={{
-          borderLeft: '1px solid var(--k-border)',
-          padding: '16px 18px',
-          overflowY: 'auto',
-          background: 'var(--k-bg-panel)',
-        }}
-        className="scroll-kanban"
-      >
-        {selected ? (
-          <KRunDetail
-            issue={selected}
-            logs={logs[selected.id] ?? []}
-            history={tokenHistory[selected.id] ?? []}
-            onStop={() => handleStop(selected.id)}
-            onStart={() => handleStart(selected.id)}
-            onDelete={() => handleDelete(selected.id, selected.identifier)}
-            onDismiss={() => handleDismissDone(selected.id)}
-            loadingAction={loadingAction}
-          />
-        ) : (
-          <div style={{ color: 'var(--k-fg-dim)', fontSize: 12 }}>Select a card to see details</div>
-        )}
-      </section>
+      {/* Right rail — focused run detail (only when a task is running/retrying) */}
+      {rightRailOpen && (
+        <section
+          style={{
+            gridColumn: '3',
+            gridRow: '2',
+            borderLeft: '1px solid var(--k-border)',
+            padding: '16px 18px',
+            overflowY: 'auto',
+            background: 'var(--k-bg-panel)',
+            minHeight: 0,
+          }}
+          className="scroll-kanban"
+        >
+          {selected ? (
+            <KRunDetail
+              issue={selected}
+              logs={logs[selected.id] ?? []}
+              history={tokenHistory[selected.id] ?? []}
+              onStop={() => handleStop(selected.id)}
+              onStart={() => handleStart(selected.id)}
+              onDelete={() => handleDelete(selected.id, selected.identifier)}
+              onDismiss={() => handleDismissDone(selected.id)}
+              loadingAction={loadingAction}
+            />
+          ) : (
+            <div style={{ color: 'var(--k-fg-dim)', fontSize: 12 }}>Select a card to see details</div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
@@ -1390,122 +1844,71 @@ const iconButtonStyle: CSSProperties = {
   justifyContent: 'center',
 };
 
-function KMetric({
-  label,
-  value,
-  accent,
-  pulse,
-}: {
-  label: string;
-  value: string;
-  accent: string;
-  pulse?: boolean;
-}) {
+function navIconButtonStyle(active: boolean): CSSProperties {
+  return {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    background: active ? 'var(--k-surface-2)' : 'transparent',
+    border: 0,
+    color: active ? 'var(--k-fg)' : 'var(--k-fg-muted)',
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'background .12s, color .12s',
+  };
+}
+
+function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div
       style={{
         border: '1px solid var(--k-border)',
         borderRadius: 8,
-        padding: '10px 12px',
         background: 'var(--k-surface-1)',
+        overflow: 'hidden',
       }}
     >
       <div
         style={{
-          fontSize: 10,
-          color: 'var(--k-fg-dim)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
+          padding: '8px 10px',
+          borderBottom: '1px solid var(--k-border)',
           fontFamily: 'var(--font-jetbrains-mono), monospace',
-          marginBottom: 4,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 5,
+          fontSize: 10,
+          color: 'var(--k-fg-muted)',
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          fontWeight: 700,
         }}
       >
-        {pulse && (
-          <span
-            className="pulse-dot"
-            style={{ width: 6, height: 6, borderRadius: '50%', background: accent }}
-          />
-        )}
-        {label}
+        {title}
       </div>
-      <div style={{ fontSize: 22, fontFamily: 'var(--font-jetbrains-mono), monospace', fontWeight: 600, color: accent }}>
-        {value}
-      </div>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>{children}</div>
     </div>
   );
 }
 
-function SideBtn({
-  icon,
-  label,
-  onClick,
-  disabled,
-  spin,
-}: {
-  icon: IconName;
-  label: string;
-  onClick?: () => void;
-  disabled?: boolean;
-  spin?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        padding: '8px 12px',
-        borderRadius: 8,
-        background: 'var(--k-surface-1)',
-        border: '1px solid var(--k-border)',
-        color: 'var(--k-fg)',
-        fontSize: 12,
-        fontFamily: 'inherit',
-        cursor: disabled ? 'default' : 'pointer',
-        textAlign: 'left',
-        opacity: disabled ? 0.6 : 1,
-      }}
-    >
-      <Icon name={icon} size={13} style={spin ? { animation: 'pulse-dot 0.8s linear infinite' } : undefined} />
-      <span>{label}</span>
-    </button>
-  );
-}
-
-function TokenRow({ label, value, color }: { label: string; value: string; color: string }) {
+function SettingRow({ label, value }: { label: string; value: string }) {
   return (
     <div
       style={{
-        border: '1px solid var(--k-border)',
-        borderRadius: 8,
-        padding: '8px 10px',
         display: 'flex',
         alignItems: 'baseline',
         justifyContent: 'space-between',
+        gap: 8,
+        padding: '6px 10px',
+        fontFamily: 'var(--font-jetbrains-mono), monospace',
+        fontSize: 11,
+        borderTop: '1px solid var(--k-border)',
       }}
     >
+      <span style={{ color: 'var(--k-fg-dim)', flexShrink: 0 }}>{label}</span>
       <span
         style={{
-          fontSize: 10,
-          color: 'var(--k-fg-dim)',
-          fontFamily: 'var(--font-jetbrains-mono), monospace',
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
-        }}
-      >
-        {label}
-      </span>
-      <span
-        style={{
-          fontSize: 13,
-          fontFamily: 'var(--font-jetbrains-mono), monospace',
-          fontWeight: 600,
-          color,
+          color: 'var(--k-fg)',
+          textAlign: 'right',
+          overflowWrap: 'anywhere',
         }}
       >
         {value}
