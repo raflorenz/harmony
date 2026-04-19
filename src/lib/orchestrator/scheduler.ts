@@ -600,6 +600,11 @@ export class Scheduler {
       case 'message':
         if (event.content) {
           entry.lastMessage = event.content;
+          if (!entry.recentMessages) entry.recentMessages = [];
+          entry.recentMessages.push(event.content);
+          if (entry.recentMessages.length > 200) {
+            entry.recentMessages.splice(0, entry.recentMessages.length - 200);
+          }
         }
         break;
 

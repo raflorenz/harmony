@@ -283,6 +283,8 @@ export interface RunningEntry {
   lastActivityMs: number;
   /** Latest non-empty message from the agent (for UI display). */
   lastMessage?: string;
+  /** Recent non-empty agent messages (bounded ring) for UI live output. */
+  recentMessages?: string[];
 }
 
 /** Top-level orchestrator state that drives the reconciliation loop. */

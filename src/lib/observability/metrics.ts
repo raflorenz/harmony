@@ -25,6 +25,7 @@ export interface RunningSessionRow {
   outputTokens: number;
   totalTokens: number;
   lastMessage: string | null;
+  recentMessages: string[];
 }
 
 /** A row in the snapshot's `retrying` list. */
@@ -119,6 +120,7 @@ function toRunningRow(entry: RunningEntry): RunningSessionRow {
     outputTokens: entry.outputTokens ?? entry.session?.usage.outputTokens ?? 0,
     totalTokens: entry.totalTokens ?? entry.session?.usage.totalTokens ?? 0,
     lastMessage: entry.lastMessage ?? null,
+    recentMessages: entry.recentMessages ?? [],
   };
 }
 

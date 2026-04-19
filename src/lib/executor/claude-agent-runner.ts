@@ -29,7 +29,12 @@ interface ClaudeStreamEvent {
   session_id?: string;
   message?: {
     role?: string;
-    content?: Array<{ type: string; text?: string; name?: string }>;
+    content?: Array<{
+      type: string;
+      text?: string;
+      name?: string;
+      input?: Record<string, unknown>;
+    }>;
     usage?: { input_tokens?: number; output_tokens?: number };
   };
   content_block?: { type: string; text?: string; name?: string };
@@ -626,7 +631,7 @@ export class ClaudeAgentRunner implements AgentRunner {
               onUpdate({
                 kind: 'message',
                 role: 'assistant',
-                content: `Using tool: ${block.name}`,
+                content: formatToolUse(block.name, block.input),
               });
             }
           }
@@ -964,5 +969,80 @@ async function fileExists(filePath: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Render a compact one-line summary of a tool_use for live-output display. */
+function formatToolUse(
+  name: string,
+  input: Record<string, unknown> | undefined,
+): string {
+  if (!input || typeof input !== 'object') return `Using tool: ${name}`;
+  const summary = toolInputSummary(name, input);
+  return summary ? `Using ${name}: ${summary}` : `Using tool: ${name}`;
+}
+
+function toolInputSummary(
+  name: string,
+  input: Record<string, unknown>,
+): string {
+  const truncate = (s: string, n = 140) =>
+    s.length > n ? s.slice(0, n - 1) + '…' : s;
+
+  switch (name) {
+    case 'Bash':
+    case 'BashOutput': {
+      const cmd = typeof input.command === 'string' ? input.command : '';
+      return truncate(cmd.replace(/\s+/g, ' ').trim());
+    }
+    case 'Read':
+    case 'Write':
+    case 'NotebookEdit':
+      return truncate(String(input.file_path ?? input.notebook_path ?? ''));
+    case 'Edit': {
+      const file = String(input.file_path ?? '');
+      const old = typeof input.old_string === 'string' ? input.old_string : '';
+      const snippet = old.split('\n')[0].trim();
+      return truncate(snippet ? `${file} — ${snippet}` : file);
+    }
+    case 'Glob':
+      return truncate(String(input.pattern ?? ''));
+    case 'Grep':
+      return truncate(String(input.pattern ?? ''));
+    case 'WebFetch':
+    case 'WebSearch':
+      return truncate(String(input.url ?? input.query ?? ''));
+    case 'TodoWrite': {
+      const todos = Array.isArray(input.todos) ? input.todos : [];
+      const active = todos.find(
+        (t: unknown): t is { content: string; status: string } =>
+          typeof t === 'object' &&
+          t !== null &&
+          'status' in t &&
+          (t as { status: string }).status === 'in_progress',
+      );
+      if (active?.content) return truncate(active.content);
+      const first = todos[0];
+      if (
+        first &&
+        typeof first === 'object' &&
+        'content' in first &&
+        typeof (first as { content: unknown }).content === 'string'
+      ) {
+        return truncate((first as { content: string }).content);
+      }
+      return `${todos.length} item${todos.length === 1 ? '' : 's'}`;
+    }
+    case 'Task':
+      return truncate(String(input.description ?? input.prompt ?? ''));
+    default: {
+      // Generic: pick the first string-valued field
+      for (const [key, value] of Object.entries(input)) {
+        if (typeof value === 'string' && value) {
+          return truncate(`${key}=${value}`);
+        }
+      }
+      return '';
+    }
   }
 }

@@ -44,6 +44,7 @@ export function GET() {
         total_tokens: r.totalTokens,
       },
       last_message: r.lastMessage,
+      recent_messages: r.recentMessages,
     })),
     retrying: snapshot.retrying.map((r) => ({
       issue_id: r.issueId,

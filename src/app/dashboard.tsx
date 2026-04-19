@@ -24,6 +24,7 @@ interface RunningRow {
   seconds_running: number;
   tokens: { input_tokens: number; output_tokens: number; total_tokens: number };
   last_message: string | null;
+  recent_messages?: string[];
 }
 
 interface RetryRow {
@@ -404,7 +405,6 @@ function LogTail({
 // ---------------------------------------------------------------------------
 
 const SPARK_LEN = 40;
-const LOG_MAX = 120;
 
 export function Dashboard() {
   const { theme, toggleTheme } = useTheme();
@@ -436,7 +436,6 @@ export function Dashboard() {
   // Track prior running/retrying IDs for completion detection
   const prevRunningIds = useRef<Set<string>>(new Set());
   const prevRetryingIds = useRef<Set<string>>(new Set());
-  const prevLastMessages = useRef<Map<string, string>>(new Map());
   const latestAvailableRef = useRef<AvailableIssue[]>([]);
   const displayedIdsRef = useRef<Set<string>>(new Set());
 
@@ -563,21 +562,19 @@ export function Dashboard() {
     });
   }, [data]);
 
-  // ---- Log accumulation from last_message changes ----
+  // ---- Log mirror: server maintains the ring buffer, we just show it ----
   useEffect(() => {
     if (!data) return;
     setLogs((prev) => {
       const next = { ...prev };
       for (const r of data.running) {
-        const msg = r.last_message?.trim();
-        if (!msg) continue;
-        const prior = prevLastMessages.current.get(r.issue_id);
-        if (prior === msg) continue;
-        prevLastMessages.current.set(r.issue_id, msg);
-        const existing = next[r.issue_id] ?? [];
-        const appended = [...existing, '> ' + msg];
-        if (appended.length > LOG_MAX) appended.splice(0, appended.length - LOG_MAX);
-        next[r.issue_id] = appended;
+        const messages = r.recent_messages?.length
+          ? r.recent_messages
+          : r.last_message
+            ? [r.last_message]
+            : null;
+        if (!messages) continue;
+        next[r.issue_id] = messages.map((m) => '> ' + m);
       }
       return next;
     });
@@ -750,7 +747,13 @@ export function Dashboard() {
 
   const unifiedIssues: UnifiedIssue[] = useMemo(() => {
     const out: UnifiedIssue[] = [];
+    const activeIds = new Set<string>([
+      ...(data?.running.map((r) => r.issue_id) ?? []),
+      ...(data?.retrying.map((r) => r.issue_id) ?? []),
+      ...doneItems.map((d) => d.issue_id),
+    ]);
     for (const a of available) {
+      if (activeIds.has(a.id)) continue;
       out.push({
         id: a.id,
         identifier: a.identifier,

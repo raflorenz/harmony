@@ -41,9 +41,9 @@ agent:
 # Requires: `claude` CLI installed, ANTHROPIC_API_KEY env var set
 claude:
   enabled: true
-  runtime_timeout_ms: 1200000  # 20 minutes per task
+  runtime_timeout_ms: 300000 # 20 minutes per task
   max_turns: 20
-  model: "claude-sonnet-4-6"  # empty = use CLI default
+  model: "claude-sonnet-4-6" # empty = use CLI default
 
 # Codex config kept for fallback (claude.enabled: false to use Codex instead)
 codex:
@@ -67,16 +67,20 @@ You are working inside a cloned Git repository on a dedicated branch. Your goal 
 - **State:** {{ issue.state }}
 - **Priority:** {{ issue.priority }}
 - **Description:** {{ issue.description }}
-{% if issue.url %}- **URL:** {{ issue.url }}{% endif %}
+  {% if issue.url %}- **URL:** {{ issue.url }}{% endif %}
 
 {% if issue.labels.size > 0 %}
+
 ## Labels
+
 {% for label in issue.labels %}- {{ label }}
 {% endfor %}
 {% endif %}
 
 {% if issue.blocked_by.size > 0 %}
+
 ## Blockers
+
 {% for blocker in issue.blocked_by %}- {{ blocker.identifier }} ({{ blocker.state }})
 {% endfor %}
 {% endif %}
@@ -100,6 +104,7 @@ This is retry attempt {{ attempt }}. Review your previous work on this branch an
 {% endif %}
 
 ### Guidelines
+
 - Make focused, minimal changes — do not refactor unrelated code
 - If tests exist, make sure they pass before finishing
 - Do NOT commit, push, or create a PR — the orchestrator handles that automatically after you finish
