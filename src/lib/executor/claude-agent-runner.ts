@@ -467,6 +467,7 @@ export class ClaudeAgentRunner implements AgentRunner {
       let buffer = '';
       let resolved = false;
       let claudeErrorMessage: string | null = null;
+      let stderrBuffer = '';
 
       const finish = (result: { success: boolean; error?: string }) => {
         if (resolved) return;
@@ -523,9 +524,66 @@ export class ClaudeAgentRunner implements AgentRunner {
             continue; // Skip non-JSON output
           }
 
-          // Capture fatal error result for surfacing on non-zero exit
-          if (event.type === 'result' && event.is_error && event.result) {
-            claudeErrorMessage = String(event.result);
+          // Capture fatal error result for surfacing on non-zero exit.
+          //
+          // Claude CLI's terminal `result` event carries the failure reason in
+          // different fields depending on the cause:
+          //  - normal failure  → `result` (string)
+          //  - max-turns hit   → `subtype: "error_max_turns"`, `errors: [...]`,
+          //                      `result` is missing/empty
+          //  - other terminals → `subtype` like `error_during_execution`,
+          //                      sometimes `errors[]`, sometimes only `subtype`
+          //
+          // Pick the most specific message available so the user sees why the
+          // run actually failed instead of a generic "exit 1".
+          if (event.type === 'result' && event.is_error) {
+            const resultText = typeof event.result === 'string' ? event.result : '';
+            const rawErrors = (event as { errors?: unknown }).errors;
+            const errorsList = Array.isArray(rawErrors)
+              ? rawErrors.filter((e): e is string => typeof e === 'string' && e.length > 0)
+              : [];
+            const errorsText = errorsList.join('; ');
+            const subtype = typeof event.subtype === 'string' ? event.subtype : '';
+
+            if (resultText) {
+              claudeErrorMessage = resultText;
+            } else if (errorsText) {
+              claudeErrorMessage = errorsText;
+            } else if (subtype) {
+              claudeErrorMessage = `Claude exited (${subtype})`;
+            } else if (!claudeErrorMessage) {
+              claudeErrorMessage = 'Claude returned an error result';
+            }
+            logger.info('Claude returned error result', {
+              issue_id: issueId,
+              subtype,
+              api_error_status: event.api_error_status,
+              errors: errorsText.slice(0, 300),
+              result: resultText.slice(0, 300),
+            });
+          }
+          // Rate-limit and synthetic assistant errors carry the user-facing
+          // message in event.message.content[].text — capture it as a
+          // fallback so the close handler can surface a meaningful error.
+          if (
+            event.type === 'assistant' &&
+            (event as { error?: string }).error &&
+            event.message?.content
+          ) {
+            for (const block of event.message.content) {
+              if (block.type === 'text' && block.text) {
+                claudeErrorMessage = block.text.slice(0, 300);
+                break;
+              }
+            }
+          }
+          if (event.type === 'rate_limit_event') {
+            const info = (event as { rate_limit_info?: { status?: string } })
+              .rate_limit_info;
+            if (info?.status === 'rejected') {
+              claudeErrorMessage =
+                claudeErrorMessage ?? 'Claude rate limit hit';
+            }
           }
 
           // Update last activity (parent scheduler uses this for stall detection)
@@ -548,11 +606,17 @@ export class ClaudeAgentRunner implements AgentRunner {
         }
       });
 
-      // Stderr: log but don't fail
+      // Stderr: accumulate so we can include it in the failure message,
+      // and log at info level so it's visible in dev.
       child.stderr?.on('data', (chunk: Buffer) => {
-        const text = chunk.toString().trim();
-        if (text) {
-          logger.debug('Claude stderr', { text: text.slice(0, 500) });
+        const text = chunk.toString();
+        stderrBuffer += text;
+        if (stderrBuffer.length > 4000) {
+          stderrBuffer = stderrBuffer.slice(-4000);
+        }
+        const trimmed = text.trim();
+        if (trimmed) {
+          logger.info('Claude stderr', { text: trimmed.slice(0, 500) });
         }
       });
 
@@ -565,7 +629,38 @@ export class ClaudeAgentRunner implements AgentRunner {
         finish({ success: false, error: `Process spawn error: ${err.message}` });
       });
 
-      child.on('close', (code) => {
+      child.on('close', (code, signal) => {
+        // Flush any trailing buffered stdout line — Claude's final result
+        // event sometimes arrives without a trailing newline before close.
+        if (buffer.trim()) {
+          try {
+            const event: ClaudeStreamEvent = JSON.parse(buffer.trim());
+            if (event.type === 'result' && event.is_error) {
+              const resultText =
+                typeof event.result === 'string' ? event.result : '';
+              const rawErrors = (event as { errors?: unknown }).errors;
+              const errorsList = Array.isArray(rawErrors)
+                ? rawErrors.filter(
+                    (e): e is string => typeof e === 'string' && e.length > 0,
+                  )
+                : [];
+              const errorsText = errorsList.join('; ');
+              const subtype =
+                typeof event.subtype === 'string' ? event.subtype : '';
+              if (resultText) {
+                claudeErrorMessage = resultText;
+              } else if (errorsText) {
+                claudeErrorMessage = errorsText;
+              } else if (subtype && !claudeErrorMessage) {
+                claudeErrorMessage = `Claude exited (${subtype})`;
+              }
+            }
+          } catch {
+            // Not a parseable JSON tail — ignore
+          }
+          buffer = '';
+        }
+
         onUpdate({ kind: 'turn_end', turnNumber });
         onUpdate({
           kind: 'usage',
@@ -578,14 +673,28 @@ export class ClaudeAgentRunner implements AgentRunner {
 
         if (code === 0) {
           finish({ success: true });
-        } else {
-          finish({
-            success: false,
-            error: claudeErrorMessage
-              ? `${claudeErrorMessage} (exit ${code})`
-              : `Claude process exited with code ${code}`,
-          });
+          return;
         }
+
+        // Build the most informative error message we can.
+        const stderrTail = stderrBuffer.trim().slice(-500);
+        const exitDesc = signal ? `signal ${signal}` : `exit ${code}`;
+        let error: string;
+        if (claudeErrorMessage) {
+          error = `${claudeErrorMessage} (${exitDesc})`;
+        } else if (stderrTail) {
+          error = `Claude process exited with ${exitDesc}: ${stderrTail}`;
+        } else {
+          error = `Claude process exited with ${exitDesc}`;
+        }
+        logger.warn('Claude process exited non-zero', {
+          issue_id: issueId,
+          exit_code: code,
+          signal,
+          captured_error: claudeErrorMessage,
+          stderr_tail: stderrTail.slice(0, 300),
+        });
+        finish({ success: false, error });
       });
     });
   }

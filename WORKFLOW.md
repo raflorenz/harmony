@@ -34,16 +34,16 @@ hooks:
 
 agent:
   max_concurrent_agents: 3
-  max_turns: 20
+  max_turns: 250
   max_retry_backoff_ms: 300000
 
 # Claude Code CLI as the agent runner
 # Requires: `claude` CLI installed, ANTHROPIC_API_KEY env var set
 claude:
   enabled: true
-  runtime_timeout_ms: 300000 # 20 minutes per task
-  max_turns: 20
-  model: "claude-sonnet-4-6" # empty = use CLI default
+  runtime_timeout_ms: 3600000
+  max_turns: 250
+  model: "" # empty = use CLI default
 
 # Codex config kept for fallback (claude.enabled: false to use Codex instead)
 codex:
