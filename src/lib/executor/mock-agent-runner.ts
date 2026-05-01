@@ -37,9 +37,26 @@ export class MockAgentRunner implements AgentRunner {
     config: ServiceConfig;
     promptTemplate: string;
     onUpdate: (event: CodexUpdateEvent) => void;
+    previousMessages?: string[];
   }): Promise<{ success: boolean; error?: string }> {
-    const { issue, attempt, workspacePath, config, onUpdate } = params;
+    const { issue, attempt, workspacePath, config, onUpdate, previousMessages } = params;
     const log = logger.forIssue(issue.id, issue.identifier);
+
+    // When resuming, skip past the phases whose labels we already emitted before.
+    const completedLabels = new Set(
+      (previousMessages ?? [])
+        .map((m) => m.replace(/^>\s*/, '').trim())
+        .filter(Boolean),
+    );
+    const startPhase = WORK_PHASES.findIndex((p) => !completedLabels.has(p.label));
+    const resumeFrom = startPhase === -1 ? WORK_PHASES.length : startPhase;
+    if (resumeFrom > 0) {
+      onUpdate({
+        kind: 'message',
+        role: 'system',
+        content: `Resuming from phase ${resumeFrom + 1}/${WORK_PHASES.length} — prior work preserved`,
+      });
+    }
 
     const runState = { cancelled: false };
     this.activeRuns.set(issue.id, runState);
@@ -71,7 +88,7 @@ export class MockAgentRunner implements AgentRunner {
     onUpdate({ kind: 'turn_start', turnNumber });
 
     try {
-      for (let i = 0; i < WORK_PHASES.length; i++) {
+      for (let i = resumeFrom; i < WORK_PHASES.length; i++) {
         if (runState.cancelled) {
           log.info('Mock agent run cancelled');
           return { success: false, error: 'Run cancelled by reconciliation' };

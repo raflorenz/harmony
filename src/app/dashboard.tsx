@@ -35,13 +35,25 @@ interface RetryRow {
   error: string | null;
 }
 
+interface CanceledRow {
+  issue_id: string;
+  issue_identifier: string;
+  attempt: number;
+  canceled_at: string;
+  tokens: { input_tokens: number; output_tokens: number; total_tokens: number };
+  turn_count: number;
+  last_message: string | null;
+  recent_messages: string[];
+}
+
 interface StateResponse {
   mock_mode?: boolean;
   auto_dispatch?: boolean;
   generated_at: string;
-  counts: { running: number; retrying: number };
+  counts: { running: number; retrying: number; canceled?: number };
   running: RunningRow[];
   retrying: RetryRow[];
+  canceled?: CanceledRow[];
   codex_totals: {
     input_tokens: number;
     output_tokens: number;
@@ -70,7 +82,7 @@ interface DoneItem {
   finished_at: string;
 }
 
-type LaneState = 'todo' | 'running' | 'retrying' | 'done';
+type LaneState = 'todo' | 'running' | 'retrying' | 'canceled' | 'done';
 
 interface UnifiedIssue {
   id: string;
@@ -103,10 +115,11 @@ const DEFAULT_BOARD_COLUMNS: BoardColumn[] = [
   { key: 'todo', laneKey: 'todo', label: 'To do', accent: '#7e8a95', builtin: true },
   { key: 'in-progress', laneKey: 'running', label: 'Running', accent: '#6bd69c', builtin: true },
   { key: 'review', laneKey: 'retrying', label: 'Retrying', accent: '#f5c050', builtin: true },
+  { key: 'canceled', laneKey: 'canceled', label: 'Canceled', accent: '#ee9b60', builtin: true },
   { key: 'done', laneKey: 'done', label: 'Done', accent: '#7dd3a1', builtin: true },
 ];
 
-const BOARD_COLUMNS_STORAGE_KEY = 'harmony:boardColumns:v1';
+const BOARD_COLUMNS_STORAGE_KEY = 'harmony:boardColumns:v2';
 const COLUMN_ACCENT_PALETTE = ['#9bb7ff', '#c89bff', '#f59bb7', '#9be8ff', '#ffc89b', '#b7f59b'];
 const COLUMN_DRAG_MIME = 'application/x-harmony-column';
 
@@ -165,6 +178,8 @@ function statusColor(s: string): string {
     case 'Stalled':
     case 'CanceledByReconciliation':
       return '#ee6060';
+    case 'Canceled':
+      return '#ee9b60';
     default:
       return '#888';
   }
@@ -669,11 +684,17 @@ export function Dashboard() {
     if (!data) return;
     const currentRunningIds = new Set(data.running.map((r) => r.issue_id));
     const currentRetryingIds = new Set(data.retrying.map((r) => r.issue_id));
+    const currentCanceledIds = new Set((data.canceled ?? []).map((c) => c.issue_id));
     const currentAvailableIds = new Set(available.map((a) => a.id));
 
     const newDone: DoneItem[] = [];
     for (const id of prevRunningIds.current) {
-      if (!currentRunningIds.has(id) && !currentRetryingIds.has(id) && !currentAvailableIds.has(id)) {
+      if (
+        !currentRunningIds.has(id) &&
+        !currentRetryingIds.has(id) &&
+        !currentCanceledIds.has(id) &&
+        !currentAvailableIds.has(id)
+      ) {
         const prev = data.running.find((r) => r.issue_id === id);
         newDone.push({
           issue_id: id,
@@ -684,7 +705,12 @@ export function Dashboard() {
       }
     }
     for (const id of prevRetryingIds.current) {
-      if (!currentRunningIds.has(id) && !currentRetryingIds.has(id) && !currentAvailableIds.has(id)) {
+      if (
+        !currentRunningIds.has(id) &&
+        !currentRetryingIds.has(id) &&
+        !currentCanceledIds.has(id) &&
+        !currentAvailableIds.has(id)
+      ) {
         if (!newDone.some((d) => d.issue_id === id)) {
           const prev = data.retrying.find((r) => r.issue_id === id);
           newDone.push({
@@ -738,6 +764,15 @@ export function Dashboard() {
         if (!messages) continue;
         next[r.issue_id] = messages.map((m) => '> ' + m);
       }
+      for (const c of data.canceled ?? []) {
+        const messages = c.recent_messages?.length
+          ? c.recent_messages
+          : c.last_message
+            ? [c.last_message]
+            : null;
+        if (!messages) continue;
+        next[c.issue_id] = messages.map((m) => '> ' + m);
+      }
       return next;
     });
   }, [data]);
@@ -748,14 +783,17 @@ export function Dashboard() {
       const stillExists =
         data?.running.some((r) => r.issue_id === selectedId) ||
         data?.retrying.some((r) => r.issue_id === selectedId) ||
+        data?.canceled?.some((c) => c.issue_id === selectedId) ||
         available.some((a) => a.id === selectedId) ||
         doneItems.some((d) => d.issue_id === selectedId);
       if (stillExists) return;
     }
     const firstRunning = data?.running[0]?.issue_id;
     const firstRetry = data?.retrying[0]?.issue_id;
+    const firstCanceled = data?.canceled?.[0]?.issue_id;
     const firstTodo = available[0]?.id;
-    const next = firstRunning ?? firstRetry ?? firstTodo ?? doneItems[0]?.issue_id ?? null;
+    const next =
+      firstRunning ?? firstRetry ?? firstCanceled ?? firstTodo ?? doneItems[0]?.issue_id ?? null;
     if (next !== selectedId) setSelectedId(next);
   }, [selectedId, data, available, doneItems]);
 
@@ -776,6 +814,17 @@ export function Dashboard() {
     setLoadingAction(`stop-${issueId}`);
     try {
       await fetch(`/api/v1/issues/${issueId}/stop`, { method: 'POST' });
+      await fetchState();
+      await fetchAvailable();
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleResume = async (issueId: string) => {
+    setLoadingAction(`resume-${issueId}`);
+    try {
+      await fetch(`/api/v1/issues/${issueId}/resume`, { method: 'POST' });
       await fetchState();
       await fetchAvailable();
     } finally {
@@ -918,6 +967,7 @@ export function Dashboard() {
     const activeIds = new Set<string>([
       ...(data?.running.map((r) => r.issue_id) ?? []),
       ...(data?.retrying.map((r) => r.issue_id) ?? []),
+      ...(data?.canceled?.map((c) => c.issue_id) ?? []),
       ...doneItems.map((d) => d.issue_id),
     ]);
     for (const a of available) {
@@ -976,6 +1026,24 @@ export function Dashboard() {
           finishedAt: null,
         });
       }
+      for (const c of data.canceled ?? []) {
+        out.push({
+          id: c.issue_id,
+          identifier: c.issue_identifier,
+          title: titleCacheRef.current.get(c.issue_id) ?? c.issue_identifier,
+          state: 'canceled',
+          priority: null,
+          labels: [],
+          attempt: c.attempt,
+          seconds: 0,
+          tokens: c.tokens.total_tokens,
+          status: 'Canceled',
+          lastMsg: c.last_message,
+          dueAtMs: null,
+          error: null,
+          finishedAt: c.canceled_at,
+        });
+      }
     }
     for (const d of doneItems) {
       out.push({
@@ -1002,6 +1070,7 @@ export function Dashboard() {
     todo: unifiedIssues.filter((i) => i.state === 'todo'),
     running: unifiedIssues.filter((i) => i.state === 'running'),
     retrying: unifiedIssues.filter((i) => i.state === 'retrying'),
+    canceled: unifiedIssues.filter((i) => i.state === 'canceled'),
     done: unifiedIssues.filter((i) => i.state === 'done'),
   };
 
@@ -1009,7 +1078,8 @@ export function Dashboard() {
 
   const runningCount = data?.counts.running ?? 0;
   const retryingCount = data?.counts.retrying ?? 0;
-  const rightRailOpen = runningCount > 0 || retryingCount > 0;
+  const canceledCount = data?.counts.canceled ?? data?.canceled?.length ?? 0;
+  const rightRailOpen = runningCount > 0 || retryingCount > 0 || canceledCount > 0;
 
   // Columns — derived from board layout + issue lane counts
   const columns: {
@@ -1269,7 +1339,7 @@ export function Dashboard() {
               marginTop: 2,
             }}
           >
-            {runningCount} running · {retryingCount} retrying · {byState.todo.length} queued
+            {runningCount} running · {retryingCount} retrying · {canceledCount} canceled · {byState.todo.length} queued
           </div>
         </div>
         <div style={{ flex: 1 }} />
@@ -1626,6 +1696,7 @@ export function Dashboard() {
                       onClick={() => setSelectedId(issue.id)}
                       onStart={() => handleStart(issue.id)}
                       onStop={() => handleStop(issue.id)}
+                      onResume={() => handleResume(issue.id)}
                       onDelete={() => handleDelete(issue.id, issue.identifier)}
                       onDismiss={() => handleDismissDone(issue.id)}
                       miniLog={logs[issue.id]}
@@ -1794,6 +1865,7 @@ export function Dashboard() {
               history={tokenHistory[selected.id] ?? []}
               onStop={() => handleStop(selected.id)}
               onStart={() => handleStart(selected.id)}
+              onResume={() => handleResume(selected.id)}
               onDelete={() => handleDelete(selected.id, selected.identifier)}
               onDismiss={() => handleDismissDone(selected.id)}
               loadingAction={loadingAction}
@@ -1815,6 +1887,8 @@ function columnFromLaneState(s: LaneState): KanbanColumn {
       return 'in-progress';
     case 'retrying':
       return 'review';
+    case 'canceled':
+      return 'canceled';
     case 'done':
       return 'done';
   }
@@ -1923,6 +1997,7 @@ function KCard({
   onClick,
   onStart,
   onStop,
+  onResume,
   onDelete,
   onDismiss,
   miniLog,
@@ -1936,6 +2011,7 @@ function KCard({
   onClick: () => void;
   onStart: () => void;
   onStop: () => void;
+  onResume: () => void;
   onDelete: () => void;
   onDismiss: () => void;
   miniLog?: string[];
@@ -1947,6 +2023,7 @@ function KCard({
   const [hover, setHover] = useState(false);
   const isRunning = issue.state === 'running';
   const isRetrying = issue.state === 'retrying';
+  const isCanceled = issue.state === 'canceled';
   const isDone = issue.state === 'done';
   const isTodo = issue.state === 'todo';
   const accent = statusColor(issue.status);
@@ -1955,6 +2032,8 @@ function KCard({
     ? accent
     : isRetrying
     ? accent
+    : isCanceled
+    ? '#ee9b60'
     : isDone
     ? '#7dd3a1'
     : priorityColor(issue.priority);
@@ -2036,6 +2115,8 @@ function KCard({
             ? shortStatus(issue.status)
             : isRetrying
             ? 'retry #' + issue.attempt
+            : isCanceled
+            ? 'canceled'
             : isDone
             ? 'done'
             : priorityLabel(issue.priority)}
@@ -2176,6 +2257,75 @@ function KCard({
         </>
       )}
 
+      {isCanceled && (
+        <>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              fontSize: 10,
+              fontFamily: 'var(--font-jetbrains-mono), monospace',
+              color: 'var(--k-fg-muted)',
+            }}
+          >
+            <span>{formatTokens(issue.tokens)} tok</span>
+            <span>·</span>
+            <span>#{issue.attempt}</span>
+            <span style={{ flex: 1 }} />
+            <span>
+              canceled {issue.finishedAt ? relativeTime(issue.finishedAt) : ''}
+            </span>
+          </div>
+          {issue.lastMsg && (
+            <div
+              style={{
+                fontFamily: 'var(--font-jetbrains-mono), monospace',
+                fontSize: 10,
+                color: 'var(--k-fg-muted)',
+                background: 'var(--k-log-bg)',
+                padding: '6px 8px',
+                borderRadius: 6,
+                height: 28,
+                overflow: 'hidden',
+                whiteSpace: 'nowrap',
+                textOverflow: 'ellipsis',
+                borderLeft: '2px solid #ee9b6055',
+              }}
+              title={issue.lastMsg}
+            >
+              {'> ' + issue.lastMsg}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onResume();
+              }}
+              disabled={loadingAction === `resume-${issue.id}`}
+              style={miniBtnStyle('#6bd69c')}
+            >
+              <Icon name="play" size={10} />{' '}
+              {loadingAction === `resume-${issue.id}` ? '…' : 'resume'}
+            </button>
+            {hover && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+                disabled={loadingAction === `delete-${issue.id}`}
+                style={miniBtnStyle('#7e8a95')}
+              >
+                <Icon name="trash" size={10} />{' '}
+                {loadingAction === `delete-${issue.id}` ? '…' : 'delete'}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
       {isTodo && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ display: 'flex', gap: 4, flex: 1, flexWrap: 'wrap' }}>
@@ -2260,6 +2410,7 @@ function KRunDetail({
   history,
   onStop,
   onStart,
+  onResume,
   onDelete,
   onDismiss,
   loadingAction,
@@ -2269,12 +2420,14 @@ function KRunDetail({
   history: number[];
   onStop: () => void;
   onStart: () => void;
+  onResume: () => void;
   onDelete: () => void;
   onDismiss: () => void;
   loadingAction: string | null;
 }) {
   const isRunning = issue.state === 'running';
   const isRetrying = issue.state === 'retrying';
+  const isCanceled = issue.state === 'canceled';
   const isTodo = issue.state === 'todo';
   const isDone = issue.state === 'done';
   const accent = statusColor(issue.status);
@@ -2444,6 +2597,16 @@ function KRunDetail({
             <Icon name="trash" size={12} /> Delete
           </button>
         )}
+        {isCanceled && (
+          <button
+            onClick={onResume}
+            disabled={loadingAction === `resume-${issue.id}`}
+            style={primaryBtn('#6bd69c')}
+          >
+            <Icon name="play" size={12} />{' '}
+            {loadingAction === `resume-${issue.id}` ? 'Resuming…' : 'Resume run'}
+          </button>
+        )}
         {isTodo && (
           <button
             onClick={onStart}
@@ -2458,7 +2621,7 @@ function KRunDetail({
             <Icon name="x" size={12} /> Dismiss
           </button>
         )}
-        {(isRunning || isRetrying) && (
+        {(isRunning || isRetrying || isCanceled) && (
           <button
             onClick={onDelete}
             disabled={loadingAction === `delete-${issue.id}`}

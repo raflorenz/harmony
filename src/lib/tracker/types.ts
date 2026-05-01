@@ -247,6 +247,26 @@ export interface RetryEntry {
   error: string | null;
 }
 
+/** Snapshot of a run that was canceled mid-stream and is awaiting resume. */
+export interface CanceledEntry {
+  issueId: string;
+  identifier: string;
+  /** Snapshot of the issue at cancel time, used for re-dispatch. */
+  issue: Issue;
+  /** Attempt counter at the moment of cancellation. */
+  attempt: number;
+  /** Recent agent messages accumulated before cancel (bounded). */
+  recentMessages: string[];
+  lastMessage: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  turnCount: number;
+  canceledAt: Date;
+  /** Workspace path of the canceled run (kept intact for resume). */
+  workspacePath: string;
+}
+
 // ---- 4.1.8 OrchestratorState -----------------------------------------------
 
 /** Aggregated token/time counters across all Codex sessions. */
@@ -299,6 +319,8 @@ export interface OrchestratorState {
   claimed: Set<string>;
   /** Issues waiting for retry, keyed by issue ID. */
   retryAttempts: Map<string, RetryEntry>;
+  /** Issues canceled mid-run with partial state, awaiting resume. */
+  canceled: Map<string, CanceledEntry>;
   /** Issue IDs that have reached a terminal state. */
   completed: Set<string>;
   /** Aggregate token and time usage across all sessions. */

@@ -53,6 +53,20 @@ export function GET() {
       due_at: r.dueAt,
       error: r.error,
     })),
+    canceled: snapshot.canceled.map((c) => ({
+      issue_id: c.issueId,
+      issue_identifier: c.issueIdentifier,
+      attempt: c.attempt,
+      canceled_at: c.canceledAt,
+      tokens: {
+        input_tokens: c.inputTokens,
+        output_tokens: c.outputTokens,
+        total_tokens: c.totalTokens,
+      },
+      turn_count: c.turnCount,
+      last_message: c.lastMessage,
+      recent_messages: c.recentMessages,
+    })),
     codex_totals: {
       input_tokens: snapshot.codexTotals.inputTokens,
       output_tokens: snapshot.codexTotals.outputTokens,
