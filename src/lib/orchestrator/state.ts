@@ -17,6 +17,7 @@ export function createInitialState(
     running: new Map(),
     claimed: new Set(),
     retryAttempts: new Map(),
+    canceled: new Map(),
     completed: new Set(),
     codexTotals: {
       inputTokens: 0,

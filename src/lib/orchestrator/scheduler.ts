@@ -9,6 +9,7 @@ import type {
   RunningEntry,
   RunStatus,
   CodexUpdateEvent,
+  CanceledEntry,
 } from '../tracker/types';
 import type { TrackerClient } from '../tracker/client';
 import { logger } from '../observability/logger';
@@ -32,6 +33,8 @@ export interface AgentRunner {
     config: ServiceConfig;
     promptTemplate: string;
     onUpdate: (event: CodexUpdateEvent) => void;
+    /** Recent agent messages from a prior canceled run, for resume context. */
+    previousMessages?: string[];
   }): Promise<{ success: boolean; error?: string }>;
 
   terminateRun(issueId: string): Promise<void>;
@@ -117,6 +120,9 @@ export class Scheduler {
     for (const [issueId] of this.state.retryAttempts) {
       cancelRetry(this.state, issueId);
     }
+
+    // Drop canceled snapshots — they are in-memory only.
+    this.state.canceled.clear();
 
     // Terminate all running workers
     for (const [issueId] of this.state.running) {
@@ -207,18 +213,56 @@ export class Scheduler {
     if (!entry) return false;
 
     const log = logger.forIssue(issueId, entry.issueIdentifier);
-    log.info('Manual stop requested');
+    log.info('Manual stop requested — snapshotting partial state');
 
-    // Terminate the worker
+    // Snapshot partial state BEFORE terminating, so resume has context.
+    const canceledEntry: CanceledEntry = {
+      issueId,
+      identifier: entry.issueIdentifier,
+      issue: entry.issue,
+      attempt: entry.attempt ?? 0,
+      recentMessages: (entry.recentMessages ?? []).slice(-50),
+      lastMessage: entry.lastMessage ?? null,
+      inputTokens: entry.inputTokens ?? 0,
+      outputTokens: entry.outputTokens ?? 0,
+      totalTokens: entry.totalTokens ?? 0,
+      turnCount: entry.turnCount ?? 0,
+      canceledAt: new Date(),
+      workspacePath: entry.workspacePath,
+    };
+
+    // Terminate the worker (workspace preserved for resume).
     await this.terminateWorker(issueId, false);
 
-    // Remove from running and claimed, cancel any retry
     this.state.running.delete(issueId);
     this.workerAborts.delete(issueId);
     addRuntimeSeconds(this.state, entry);
     cancelRetry(this.state, issueId);
     releaseClaim(this.state, issueId);
 
+    // Park the canceled entry. Re-claim so it doesn't reappear in To Do.
+    this.state.canceled.set(issueId, canceledEntry);
+    this.state.claimed.add(issueId);
+
+    return true;
+  }
+
+  /** Resume a canceled run with its captured partial state. */
+  async manualResume(issueId: string): Promise<boolean> {
+    const canceled = this.state.canceled.get(issueId);
+    if (!canceled) return false;
+    if (this.state.running.has(issueId)) return false;
+
+    const log = logger.forIssue(issueId, canceled.identifier);
+    log.info('Resume requested', {
+      previous_messages: canceled.recentMessages.length,
+      previous_attempt: canceled.attempt,
+    });
+
+    this.state.canceled.delete(issueId);
+    // Claim is already held; dispatchIssue will set it again (idempotent).
+
+    this.dispatchIssue(canceled.issue, canceled.attempt, canceled.recentMessages);
     return true;
   }
 
@@ -232,6 +276,9 @@ export class Scheduler {
     // Cancel any pending retry
     cancelRetry(this.state, issueId);
     releaseClaim(this.state, issueId);
+
+    // Drop any canceled snapshot
+    this.state.canceled.delete(issueId);
 
     // Remove from completed set
     this.state.completed.delete(issueId);
@@ -352,9 +399,17 @@ export class Scheduler {
 
   // ---- Dispatch (Section 16.4) --------------------------------------------
 
-  private dispatchIssue(issue: Issue, attempt: number | null): void {
+  private dispatchIssue(
+    issue: Issue,
+    attempt: number | null,
+    previousMessages?: string[],
+  ): void {
     const log = logger.forIssue(issue.id, issue.identifier);
-    log.info('Dispatching issue', { attempt, state: issue.state });
+    log.info('Dispatching issue', {
+      attempt,
+      state: issue.state,
+      resumed: previousMessages ? previousMessages.length : 0,
+    });
 
     // Mark as claimed and create running entry
     this.state.claimed.add(issue.id);
@@ -373,6 +428,7 @@ export class Scheduler {
       totalTokens: 0,
       turnCount: 0,
       lastActivityMs: Date.now(),
+      recentMessages: previousMessages ? [...previousMessages] : undefined,
     };
     this.state.running.set(issue.id, runningEntry);
 
@@ -383,7 +439,7 @@ export class Scheduler {
     const abort = new AbortController();
     this.workerAborts.set(issue.id, abort);
 
-    this.runWorker(issue, attempt, abort.signal)
+    this.runWorker(issue, attempt, abort.signal, previousMessages)
       .then(() => {
         this.onWorkerExit(issue.id, 'normal');
       })
@@ -402,6 +458,7 @@ export class Scheduler {
     issue: Issue,
     attempt: number | null,
     signal: AbortSignal,
+    previousMessages?: string[],
   ): Promise<void> {
     const log = logger.forIssue(issue.id, issue.identifier);
 
@@ -430,6 +487,7 @@ export class Scheduler {
       config: this.config,
       promptTemplate: this.promptTemplate,
       onUpdate: (event) => this.onCodexUpdate(issue.id, event),
+      previousMessages,
     });
 
     if (!result.success) {

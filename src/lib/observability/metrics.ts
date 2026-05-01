@@ -7,6 +7,7 @@ import type {
   RunningEntry,
   RetryEntry,
   RunStatus,
+  CanceledEntry,
 } from "../tracker/types";
 
 // ---------------------------------------------------------------------------
@@ -37,6 +38,20 @@ export interface RetryRow {
   error: string | null;
 }
 
+/** A row in the snapshot's `canceled` list. */
+export interface CanceledRow {
+  issueId: string;
+  issueIdentifier: string;
+  attempt: number;
+  canceledAt: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  turnCount: number;
+  lastMessage: string | null;
+  recentMessages: string[];
+}
+
 // ---------------------------------------------------------------------------
 // RuntimeSnapshot
 // ---------------------------------------------------------------------------
@@ -49,11 +64,13 @@ export interface RuntimeSnapshot {
   /** ISO-8601 timestamp of when this snapshot was generated. */
   generatedAt: string;
   /** Aggregate counts for quick consumption. */
-  counts: { running: number; retrying: number };
+  counts: { running: number; retrying: number; canceled: number };
   /** Details of every currently-running session. */
   running: RunningSessionRow[];
   /** Details of every issue awaiting retry. */
   retrying: RetryRow[];
+  /** Details of every canceled-and-resumable run. */
+  canceled: CanceledRow[];
   /** Aggregate Codex token & runtime totals. */
   codexTotals: {
     inputTokens: number;
@@ -137,6 +154,22 @@ function toRetryRow(entry: RetryEntry): RetryRow {
   };
 }
 
+/** Build a {@link CanceledRow} from a {@link CanceledEntry}. */
+function toCanceledRow(entry: CanceledEntry): CanceledRow {
+  return {
+    issueId: entry.issueId,
+    issueIdentifier: entry.identifier,
+    attempt: entry.attempt,
+    canceledAt: entry.canceledAt.toISOString(),
+    inputTokens: entry.inputTokens,
+    outputTokens: entry.outputTokens,
+    totalTokens: entry.totalTokens,
+    turnCount: entry.turnCount,
+    lastMessage: entry.lastMessage,
+    recentMessages: entry.recentMessages,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -155,9 +188,11 @@ function toRetryRow(entry: RetryEntry): RetryRow {
 export function createSnapshot(state: OrchestratorState): RuntimeSnapshot {
   const runningEntries = Array.from(state.running.values());
   const retryEntries = Array.from(state.retryAttempts.values());
+  const canceledEntries = Array.from(state.canceled.values());
 
   const runningRows: RunningSessionRow[] = runningEntries.map(toRunningRow);
   const retryRows: RetryRow[] = retryEntries.map(toRetryRow);
+  const canceledRows: CanceledRow[] = canceledEntries.map(toCanceledRow);
 
   // Compute cumulative secondsRunning: the stored total from completed
   // sessions plus live elapsed from each active session.
@@ -171,9 +206,11 @@ export function createSnapshot(state: OrchestratorState): RuntimeSnapshot {
     counts: {
       running: runningRows.length,
       retrying: retryRows.length,
+      canceled: canceledRows.length,
     },
     running: runningRows,
     retrying: retryRows,
+    canceled: canceledRows,
     codexTotals: {
       inputTokens: state.codexTotals.inputTokens,
       outputTokens: state.codexTotals.outputTokens,

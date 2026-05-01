@@ -135,8 +135,9 @@ export class ClaudeAgentRunner implements AgentRunner {
     config: ServiceConfig;
     promptTemplate: string;
     onUpdate: (event: CodexUpdateEvent) => void;
+    previousMessages?: string[];
   }): Promise<{ success: boolean; error?: string }> {
-    const { issue, attempt, workspacePath, config, promptTemplate, onUpdate } =
+    const { issue, attempt, workspacePath, config, promptTemplate, onUpdate, previousMessages } =
       params;
     const log = logger.forIssue(issue.id, issue.identifier);
     const claudeConfig = config.claude;
@@ -185,6 +186,14 @@ export class ClaudeAgentRunner implements AgentRunner {
         1, // turn 1 — Claude CLI handles its own multi-turn internally
         claudeConfig.maxTurns,
       );
+      if (previousMessages && previousMessages.length > 0) {
+        prompt = buildResumePreamble(previousMessages) + '\n\n' + prompt;
+        onUpdate({
+          kind: 'message',
+          role: 'system',
+          content: `Resuming with ${previousMessages.length} message(s) of prior context`,
+        });
+      }
     } catch (err) {
       await this.runAfterRunHook(config, workspacePath);
       return {
@@ -962,6 +971,22 @@ export class ClaudeAgentRunner implements AgentRunner {
 // ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
+
+function buildResumePreamble(previousMessages: string[]): string {
+  const tail = previousMessages.slice(-30);
+  const bulleted = tail.map((m) => `- ${m}`).join('\n');
+  return [
+    '## Resuming from a previously canceled run',
+    '',
+    'You were already working on this task and were interrupted. Your workspace,',
+    'branch, and any code changes you made are intact on disk. Inspect the working',
+    'tree before redoing anything. Below is a tail of the activity from the prior run:',
+    '',
+    bulleted,
+    '',
+    'Pick up from where you left off. Do not restart from scratch.',
+  ].join('\n');
+}
 
 async function fileExists(filePath: string): Promise<boolean> {
   try {

@@ -34,6 +34,7 @@ export class AgentRunnerImpl implements IAgentRunner {
     config: ServiceConfig;
     promptTemplate: string;
     onUpdate: (event: CodexUpdateEvent) => void;
+    previousMessages?: string[];
   }): Promise<{ success: boolean; error?: string }> {
     const { issue, attempt, workspacePath, config, promptTemplate, onUpdate } =
       params;
