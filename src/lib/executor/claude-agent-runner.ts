@@ -32,6 +32,7 @@ import {
   checkRequiredLabels,
   type GuardrailBreach,
 } from '../guardrails';
+import { buildLearningsPreamble, ensureLearningsExist } from '../repo-brain';
 
 // ---------------------------------------------------------------------------
 // Claude CLI stream-json event shapes
@@ -207,6 +208,24 @@ export class ClaudeAgentRunner implements AgentRunner {
         1, // turn 1 — Claude CLI handles its own multi-turn internally
         claudeConfig.maxTurns,
       );
+
+      // Repo brain — inject accumulated learnings as a preamble.
+      if (config.repoBrain.enabled) {
+        try {
+          await ensureLearningsExist(workspacePath, config.repoBrain.learningsPath);
+        } catch {
+          // best effort
+        }
+        const preamble = await buildLearningsPreamble(
+          workspacePath,
+          true,
+          config.repoBrain.maxInjectChars,
+          config.repoBrain.learningsPath,
+          config.repoBrain.learningsPrivatePath,
+        );
+        if (preamble) prompt = preamble + '\n' + prompt;
+      }
+
       if (previousMessages && previousMessages.length > 0) {
         prompt = buildResumePreamble(previousMessages) + '\n\n' + prompt;
         onUpdate({

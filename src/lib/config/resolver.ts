@@ -159,6 +159,8 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
   const rawSideAgent = rawConfig.sideAgent as Record<string, unknown> | undefined
     ?? rawConfig.side_agent as Record<string, unknown> | undefined;
   const rawGuardrails = rawConfig.guardrails as Record<string, unknown> | undefined;
+  const rawRepoBrain = rawConfig.repoBrain as Record<string, unknown> | undefined
+    ?? rawConfig.repo_brain as Record<string, unknown> | undefined;
 
   // -- tracker ---------------------------------------------------------------
   // Resolve apiKey: explicit value > $VAR in config > LINEAR_API_KEY env var
@@ -255,6 +257,17 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
     },
     sideAgent: resolveSideAgent(rawSideAgent),
     guardrails: resolveGuardrails(rawGuardrails),
+    repoBrain: {
+      enabled: rawRepoBrain?.enabled === true || rawRepoBrain?.enabled === 'true',
+      model: getStr(rawRepoBrain, 'model', DEFAULTS.repoBrain.model),
+      learningsPath: getStr(rawRepoBrain, 'learningsPath', DEFAULTS.repoBrain.learningsPath),
+      learningsPrivatePath: getStr(
+        rawRepoBrain,
+        'learningsPrivatePath',
+        DEFAULTS.repoBrain.learningsPrivatePath,
+      ),
+      maxInjectChars: getInt(rawRepoBrain, 'maxInjectChars', DEFAULTS.repoBrain.maxInjectChars),
+    },
   };
 }
 

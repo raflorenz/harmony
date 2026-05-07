@@ -44,4 +44,11 @@ export const DEFAULTS = {
     requireLabelForPaths: {} as Record<string, string>,
     onBreach: 'stop_and_escalate' as 'stop_and_escalate' | 'warn' | 'auto_split',
   },
+  repoBrain: {
+    enabled: false,
+    model: '',
+    learningsPath: '.harmony/learnings.md',
+    learningsPrivatePath: '.harmony/learnings.private.md',
+    maxInjectChars: 8000,
+  },
 };

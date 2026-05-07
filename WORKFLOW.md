@@ -75,6 +75,16 @@ guardrails:
     "src/db/migrations/**": "needs-migration-review"
   onBreach: stop_and_escalate
 
+# Repo brain — auto-maintained `.harmony/learnings.md` injected into every
+# agent run. Capture mechanism on PR merge / verifier rejection runs as a
+# side-agent that proposes additions for human review (never writes blindly).
+repoBrain:
+  enabled: false
+  model: claude-haiku-4-5-20251001
+  learningsPath: ".harmony/learnings.md"
+  learningsPrivatePath: ".harmony/learnings.private.md"
+  maxInjectChars: 8000
+
 server:
   port: 3000
 ---

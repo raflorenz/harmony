@@ -166,6 +166,14 @@ export interface GuardrailsConfig {
   onBreach: 'stop_and_escalate' | 'warn' | 'auto_split';
 }
 
+export interface RepoBrainConfigShape {
+  enabled: boolean;
+  model: string;
+  learningsPath: string;
+  learningsPrivatePath: string;
+  maxInjectChars: number;
+}
+
 /** Fully-typed service configuration (Section 6.4). */
 export interface ServiceConfig {
   tracker: TrackerConfig;
@@ -178,6 +186,7 @@ export interface ServiceConfig {
   server?: ServerConfig;
   sideAgent: SideAgentRuntimeConfig;
   guardrails: GuardrailsConfig;
+  repoBrain: RepoBrainConfigShape;
 }
 
 // ---- 4.1.4 Workspace -------------------------------------------------------
