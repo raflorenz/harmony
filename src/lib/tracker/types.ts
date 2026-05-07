@@ -156,6 +156,12 @@ export interface SideAgentRuntimeConfig {
   endpoint: string;
 }
 
+export interface DecomposerConfigShape {
+  enabled: boolean;
+  model: string;
+  maxTickets: number;
+}
+
 export interface GuardrailsConfig {
   maxFilesChanged: number;
   maxDiffLines: number;
@@ -178,6 +184,7 @@ export interface ServiceConfig {
   server?: ServerConfig;
   sideAgent: SideAgentRuntimeConfig;
   guardrails: GuardrailsConfig;
+  decomposer: DecomposerConfigShape;
 }
 
 // ---- 4.1.4 Workspace -------------------------------------------------------

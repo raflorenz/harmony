@@ -75,6 +75,14 @@ guardrails:
     "src/db/migrations/**": "needs-migration-review"
   onBreach: stop_and_escalate
 
+# Feature decomposer — turns a feature description into a DAG of proposed
+# tickets. POST /api/v1/decompose to invoke; visit /decompose to use the UI.
+# No execution agent picks up tickets until a human approves the proposal.
+decomposer:
+  enabled: false
+  model: claude-sonnet-4-6
+  maxTickets: 5
+
 server:
   port: 3000
 ---

@@ -44,4 +44,9 @@ export const DEFAULTS = {
     requireLabelForPaths: {} as Record<string, string>,
     onBreach: 'stop_and_escalate' as 'stop_and_escalate' | 'warn' | 'auto_split',
   },
+  decomposer: {
+    enabled: false,
+    model: '',
+    maxTickets: 5,
+  },
 };

@@ -159,6 +159,7 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
   const rawSideAgent = rawConfig.sideAgent as Record<string, unknown> | undefined
     ?? rawConfig.side_agent as Record<string, unknown> | undefined;
   const rawGuardrails = rawConfig.guardrails as Record<string, unknown> | undefined;
+  const rawDecomposer = rawConfig.decomposer as Record<string, unknown> | undefined;
 
   // -- tracker ---------------------------------------------------------------
   // Resolve apiKey: explicit value > $VAR in config > LINEAR_API_KEY env var
@@ -255,6 +256,11 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
     },
     sideAgent: resolveSideAgent(rawSideAgent),
     guardrails: resolveGuardrails(rawGuardrails),
+    decomposer: {
+      enabled: rawDecomposer?.enabled === true || rawDecomposer?.enabled === 'true',
+      model: getStr(rawDecomposer, 'model', DEFAULTS.decomposer.model),
+      maxTickets: getInt(rawDecomposer, 'maxTickets', DEFAULTS.decomposer.maxTickets),
+    },
   };
 }
 
