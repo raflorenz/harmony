@@ -15,9 +15,23 @@ import { logger } from '../observability/logger';
 import { runHook } from './hooks';
 import { execInWorkspace } from './hooks';
 import { buildTurnPrompt, DEFAULT_PROMPT } from './prompt';
-import type { AgentRunner } from '../orchestrator/scheduler';
-import type { Issue, ServiceConfig, CodexUpdateEvent } from '../tracker/types';
+import type { AgentRunner, WorkspaceManager } from '../orchestrator/scheduler';
+import type {
+  Issue,
+  ServiceConfig,
+  CodexUpdateEvent,
+  GuardrailsConfig,
+} from '../tracker/types';
 import type { TrackerClient } from '../tracker/client';
+import { recordTicketCost } from '../side-agent';
+import {
+  readWorkspaceDiffStats,
+  checkSizeGuardrails,
+  checkCostGuardrail,
+  checkBlockedPaths,
+  checkRequiredLabels,
+  type GuardrailBreach,
+} from '../guardrails';
 
 // ---------------------------------------------------------------------------
 // Claude CLI stream-json event shapes
@@ -123,9 +137,16 @@ function resolveClaudeBinary(): string {
 export class ClaudeAgentRunner implements AgentRunner {
   private activeProcesses = new Map<string, ChildProcess>();
   private tracker: TrackerClient;
+  private workspaceManager: WorkspaceManager | null;
 
-  constructor(tracker: TrackerClient) {
+  constructor(tracker: TrackerClient, workspaceManager: WorkspaceManager | null = null) {
     this.tracker = tracker;
+    this.workspaceManager = workspaceManager;
+  }
+
+  /** Set/replace the workspace manager (used to install pre-commit hooks). */
+  setWorkspaceManager(workspaceManager: WorkspaceManager | null): void {
+    this.workspaceManager = workspaceManager;
   }
 
   async runAttempt(params: {
@@ -226,6 +247,45 @@ export class ClaudeAgentRunner implements AgentRunner {
         success: false,
         error: err instanceof Error ? err.message : String(err),
       };
+    }
+
+    // 4b. Guardrail enforcement — post-execution check before opening PR.
+    // The pre-commit hook handles blocked_paths at commit time; here we
+    // check size, cost, and labels.
+    if (result.success && config.guardrails) {
+      const breach = await runGuardrailChecks(
+        workspacePath,
+        config.guardrails,
+        issue,
+      );
+      if (breach && config.guardrails.onBreach !== 'warn') {
+        log.warn('Guardrail breach detected, aborting before PR open', {
+          issue_id: issue.id,
+          breach_type: breach.type,
+          detail: breach.detail,
+        });
+        onUpdate({
+          kind: 'message',
+          role: 'system',
+          content: `Guardrail breach (${breach.type}): ${breach.detail}`,
+        });
+        await this.runAfterRunHook(config, workspacePath);
+        this.activeProcesses.delete(issue.id);
+        return {
+          success: false,
+          error: `Guardrail breach (${breach.type}): ${breach.detail}`,
+        };
+      } else if (breach) {
+        log.info('Guardrail warning (onBreach=warn)', {
+          breach_type: breach.type,
+          detail: breach.detail,
+        });
+        onUpdate({
+          kind: 'message',
+          role: 'system',
+          content: `Guardrail warning (${breach.type}): ${breach.detail}`,
+        });
+      }
     }
 
     // 5. If Claude succeeded, commit + push + create PR (post-processing)
@@ -405,6 +465,15 @@ export class ClaudeAgentRunner implements AgentRunner {
       role: 'system',
       content: `Working on branch ${branchName}`,
     });
+
+    // Install guardrail pre-commit hook (blocked_paths)
+    if (this.workspaceManager?.installGuardrailHooks) {
+      try {
+        await this.workspaceManager.installGuardrailHooks(workspacePath);
+      } catch {
+        // best effort
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -605,7 +674,7 @@ export class ClaudeAgentRunner implements AgentRunner {
           this.handleStreamEvent(
             event,
             onUpdate,
-            { turnNumber, totalInputTokens, totalOutputTokens },
+            { turnNumber, totalInputTokens, totalOutputTokens, ticketId: issueId },
             (updates) => {
               if (updates.turnNumber !== undefined) turnNumber = updates.turnNumber;
               if (updates.totalInputTokens !== undefined) totalInputTokens = updates.totalInputTokens;
@@ -719,6 +788,7 @@ export class ClaudeAgentRunner implements AgentRunner {
       turnNumber: number;
       totalInputTokens: number;
       totalOutputTokens: number;
+      ticketId?: string;
     },
     updateCounters: (updates: {
       turnNumber?: number;
@@ -817,6 +887,18 @@ export class ClaudeAgentRunner implements AgentRunner {
             totalTokens: (event.total_tokens ?? inputTokens + outputTokens),
             secondsRunning: (event.duration_ms ?? 0) / 1000,
           });
+        }
+        // Record execution-agent cost on the cost tracker so the cost
+        // guardrail and per-ticket dashboard sees it. The CLI emits
+        // `cost_usd` directly; fall back to 0 when missing.
+        if (typeof event.cost_usd === 'number' && counters.ticketId) {
+          recordTicketCost(
+            counters.ticketId,
+            'execution',
+            event.cost_usd,
+            event.input_tokens ?? 0,
+            event.output_tokens ?? 0,
+          );
         }
 
         if (event.is_error) {
@@ -1075,6 +1157,37 @@ export class ClaudeAgentRunner implements AgentRunner {
       }
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Guardrail run-time checks (post-execution, pre-PR)
+// ---------------------------------------------------------------------------
+
+async function runGuardrailChecks(
+  workspacePath: string,
+  guardrails: GuardrailsConfig,
+  issue: Issue,
+): Promise<GuardrailBreach | null> {
+  const stats = await readWorkspaceDiffStats(workspacePath);
+
+  const sizeBreach = checkSizeGuardrails(guardrails, stats);
+  if (sizeBreach) return sizeBreach;
+
+  const pathBreach = checkBlockedPaths(guardrails, stats.changedFiles);
+  if (pathBreach) return pathBreach;
+
+  const labelBreach = checkRequiredLabels(
+    guardrails,
+    stats.changedFiles,
+    issue.labels,
+  );
+  if (labelBreach) return labelBreach;
+
+  // Cost check uses recorded ticket cost (best-effort).
+  // Look up via a lazy import to avoid circular deps at module load time.
+  const { getTicketCost } = await import('../side-agent');
+  const totalCost = getTicketCost(issue.id).totalUsd;
+  return checkCostGuardrail(guardrails, totalCost);
 }
 
 // ---------------------------------------------------------------------------

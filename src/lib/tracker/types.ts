@@ -147,6 +147,25 @@ export interface ServerConfig {
   port?: number;
 }
 
+export interface SideAgentRuntimeConfig {
+  /** Anthropic API key. Defaults to env ANTHROPIC_API_KEY. */
+  apiKey: string;
+  /** Default model used by side-agents when not overridden per-stage. */
+  defaultModel: string;
+  /** Override endpoint (proxies). Empty = Anthropic default. */
+  endpoint: string;
+}
+
+export interface GuardrailsConfig {
+  maxFilesChanged: number;
+  maxDiffLines: number;
+  maxCostUsd: number;
+  blockedPaths: string[];
+  /** Map of path glob -> required label name. */
+  requireLabelForPaths: Record<string, string>;
+  onBreach: 'stop_and_escalate' | 'warn' | 'auto_split';
+}
+
 /** Fully-typed service configuration (Section 6.4). */
 export interface ServiceConfig {
   tracker: TrackerConfig;
@@ -157,6 +176,8 @@ export interface ServiceConfig {
   codex: CodexConfig;
   claude: ClaudeConfig;
   server?: ServerConfig;
+  sideAgent: SideAgentRuntimeConfig;
+  guardrails: GuardrailsConfig;
 }
 
 // ---- 4.1.4 Workspace -------------------------------------------------------

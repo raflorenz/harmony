@@ -31,4 +31,17 @@ export const DEFAULTS = {
     maxTurns: 20,
     model: '', // empty = use CLI default
   },
+  sideAgent: {
+    apiKey: '',
+    defaultModel: 'claude-haiku-4-5-20251001',
+    endpoint: '',
+  },
+  guardrails: {
+    maxFilesChanged: 25,
+    maxDiffLines: 1500,
+    maxCostUsd: 5.0,
+    blockedPaths: [] as string[],
+    requireLabelForPaths: {} as Record<string, string>,
+    onBreach: 'stop_and_escalate' as 'stop_and_escalate' | 'warn' | 'auto_split',
+  },
 };
