@@ -18,6 +18,13 @@ import { sortForDispatch, shouldDispatch } from './dispatcher';
 import { reconcileRunningIssues, type ReconciliationCallbacks } from './reconciler';
 import { scheduleRetry, cancelRetry, releaseClaim } from './retry';
 import { validateDispatchConfig } from '../config/resolver';
+import { runGrader, renderGraderComment } from '../grader';
+import {
+  HarmonyStates,
+  harmonyLabel,
+  ALL_HARMONY_LABELS,
+  getHarmonyState,
+} from '../tracker/states';
 
 // Forward-declared types for the executor layer (avoids circular imports)
 export interface WorkspaceManager {
@@ -388,7 +395,12 @@ export class Scheduler {
         for (const issue of sorted) {
           if (availableSlots(this.state) <= 0) break;
           if (shouldDispatch(issue, this.state, this.config)) {
-            this.dispatchIssue(issue, null);
+            // Grader gate: only dispatch when the grader approves.
+            // gradeBeforeDispatch returns true when grader is disabled.
+            const cleared = await this.gradeBeforeDispatch(issue);
+            if (cleared) {
+              this.dispatchIssue(issue, null);
+            }
           }
         }
       }
@@ -400,6 +412,62 @@ export class Scheduler {
 
     // 5. Schedule next tick
     this.scheduleTick(this.state.pollIntervalMs);
+  }
+
+  // ---- Grader gate --------------------------------------------------------
+
+  /**
+   * Pre-dispatch gate: run the grader on a candidate issue. Returns true when
+   * the issue is cleared for dispatch, false when it should not be dispatched
+   * (already in needs-clarification, or graded fails this run).
+   *
+   * Side-effects: when grading fails and tracker supports comments, posts the
+   * blocking questions and transitions the issue to `needs-clarification`.
+   */
+  private async gradeBeforeDispatch(issue: Issue): Promise<boolean> {
+    if (!this.config.grader.enabled) return true;
+
+    // Don't re-grade an issue that's already in needs-clarification — the
+    // user hasn't responded yet (re-grade happens via the comment hook).
+    if (getHarmonyState(issue) === HarmonyStates.NeedsClarification) {
+      return false;
+    }
+
+    const log = logger.forIssue(issue.id, issue.identifier);
+    const report = await runGrader(issue, this.config);
+    if (!report) {
+      log.warn('Grader failed to run, allowing dispatch as fallback');
+      return true;
+    }
+    if (report.overallPass) {
+      log.info('Grader passed', { scores: report.scores });
+      return true;
+    }
+    log.info('Grader failed, transitioning to needs-clarification', {
+      scores: report.scores,
+      blocking: report.blockingQuestions.length,
+    });
+
+    try {
+      if (this.tracker.commentOnIssue) {
+        await this.tracker.commentOnIssue(issue.id, renderGraderComment(report));
+      }
+      if (this.tracker.setHarmonyState) {
+        await this.tracker.setHarmonyState(
+          issue.id,
+          harmonyLabel(HarmonyStates.NeedsClarification),
+          ALL_HARMONY_LABELS,
+        );
+      }
+    } catch (err) {
+      log.warn('Grader tracker update failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // Park the claim so the issue isn't re-graded every poll.
+    this.state.claimed.add(issue.id);
+    return false;
   }
 
   // ---- Dispatch (Section 16.4) --------------------------------------------

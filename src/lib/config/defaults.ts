@@ -44,4 +44,17 @@ export const DEFAULTS = {
     requireLabelForPaths: {} as Record<string, string>,
     onBreach: 'stop_and_escalate' as 'stop_and_escalate' | 'warn' | 'auto_split',
   },
+  grader: {
+    enabled: false,
+    model: '',
+    minPerScore: 3,
+    minOverall: 14,
+    rerunOnCommentUpdate: true,
+  },
+  verifier: {
+    enabled: false,
+    model: '',
+    maxRevisions: 2,
+    onNoTests: 'concern' as 'concern' | 'blocking',
+  },
 };
