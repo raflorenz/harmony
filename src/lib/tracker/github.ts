@@ -366,6 +366,78 @@ export class GitHubClient implements TrackerClient {
       );
     }
   }
+
+  // ---- Mutating ops (comments, labels) -------------------------------------
+
+  async commentOnIssue(issueId: string, body: string): Promise<void> {
+    const num = parseInt(issueId, 10);
+    if (Number.isNaN(num)) return;
+    await this.mutate(
+      `${this.endpoint}/repos/${this.owner}/${this.repo}/issues/${num}/comments`,
+      'POST',
+      { body },
+    );
+  }
+
+  async addLabel(issueId: string, label: string): Promise<void> {
+    const num = parseInt(issueId, 10);
+    if (Number.isNaN(num)) return;
+    await this.mutate(
+      `${this.endpoint}/repos/${this.owner}/${this.repo}/issues/${num}/labels`,
+      'POST',
+      { labels: [label] },
+    );
+  }
+
+  async removeLabel(issueId: string, label: string): Promise<void> {
+    const num = parseInt(issueId, 10);
+    if (Number.isNaN(num)) return;
+    const url = `${this.endpoint}/repos/${this.owner}/${this.repo}/issues/${num}/labels/${encodeURIComponent(label)}`;
+    try {
+      await this.mutate(url, 'DELETE');
+    } catch {
+      // Best effort: 404 (label not on issue) is fine to ignore
+    }
+  }
+
+  async setHarmonyState(
+    issueId: string,
+    newLabel: string,
+    oldLabels: readonly string[],
+  ): Promise<void> {
+    for (const old of oldLabels) {
+      if (old !== newLabel) await this.removeLabel(issueId, old);
+    }
+    await this.addLabel(issueId, newLabel);
+  }
+
+  private async mutate(url: string, method: string, body?: unknown): Promise<void> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), NETWORK_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method,
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${this.apiKey}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+          'Content-Type': 'application/json',
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (!response.ok && response.status !== 404) {
+      const text = await response.text().catch(() => '');
+      throw new TrackerError(
+        'tracker_network_error',
+        `GitHub ${method} ${url} returned ${response.status}: ${text.slice(0, 200)}`,
+      );
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -159,6 +159,11 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
   const rawSideAgent = rawConfig.sideAgent as Record<string, unknown> | undefined
     ?? rawConfig.side_agent as Record<string, unknown> | undefined;
   const rawGuardrails = rawConfig.guardrails as Record<string, unknown> | undefined;
+  const rawRepoBrain = rawConfig.repoBrain as Record<string, unknown> | undefined
+    ?? rawConfig.repo_brain as Record<string, unknown> | undefined;
+  const rawDecomposer = rawConfig.decomposer as Record<string, unknown> | undefined;
+  const rawGrader = rawConfig.grader as Record<string, unknown> | undefined;
+  const rawVerifier = rawConfig.verifier as Record<string, unknown> | undefined;
 
   // -- tracker ---------------------------------------------------------------
   // Resolve apiKey: explicit value > $VAR in config > LINEAR_API_KEY env var
@@ -255,6 +260,44 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
     },
     sideAgent: resolveSideAgent(rawSideAgent),
     guardrails: resolveGuardrails(rawGuardrails),
+    repoBrain: {
+      enabled: rawRepoBrain?.enabled === true || rawRepoBrain?.enabled === 'true',
+      model: getStr(rawRepoBrain, 'model', DEFAULTS.repoBrain.model),
+      learningsPath: getStr(rawRepoBrain, 'learningsPath', DEFAULTS.repoBrain.learningsPath),
+      learningsPrivatePath: getStr(
+        rawRepoBrain,
+        'learningsPrivatePath',
+        DEFAULTS.repoBrain.learningsPrivatePath,
+      ),
+      maxInjectChars: getInt(rawRepoBrain, 'maxInjectChars', DEFAULTS.repoBrain.maxInjectChars),
+    },
+    decomposer: {
+      enabled: rawDecomposer?.enabled === true || rawDecomposer?.enabled === 'true',
+      model: getStr(rawDecomposer, 'model', DEFAULTS.decomposer.model),
+      maxTickets: getInt(rawDecomposer, 'maxTickets', DEFAULTS.decomposer.maxTickets),
+    },
+    grader: resolveGrader(rawGrader),
+    verifier: resolveVerifier(rawVerifier),
+  };
+}
+
+function resolveGrader(raw: Record<string, unknown> | undefined): ServiceConfig['grader'] {
+  return {
+    enabled: raw?.enabled === true || raw?.enabled === 'true',
+    model: getStr(raw, 'model', DEFAULTS.grader.model),
+    minPerScore: getInt(raw?.thresholds as Record<string, unknown> | undefined, 'minPerScore', DEFAULTS.grader.minPerScore),
+    minOverall: getInt(raw?.thresholds as Record<string, unknown> | undefined, 'minOverall', DEFAULTS.grader.minOverall),
+    rerunOnCommentUpdate: raw?.rerunOnCommentUpdate !== false && raw?.rerun_on_comment_update !== false,
+  };
+}
+
+function resolveVerifier(raw: Record<string, unknown> | undefined): ServiceConfig['verifier'] {
+  const onNoTestsRaw = getStr(raw, 'onNoTests', DEFAULTS.verifier.onNoTests);
+  return {
+    enabled: raw?.enabled === true || raw?.enabled === 'true',
+    model: getStr(raw, 'model', DEFAULTS.verifier.model),
+    maxRevisions: getInt(raw, 'maxRevisions', DEFAULTS.verifier.maxRevisions),
+    onNoTests: onNoTestsRaw === 'blocking' ? 'blocking' : 'concern',
   };
 }
 

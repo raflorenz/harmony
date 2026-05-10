@@ -32,6 +32,8 @@ import {
   checkRequiredLabels,
   type GuardrailBreach,
 } from '../guardrails';
+import { buildLearningsPreamble, ensureLearningsExist } from '../repo-brain';
+import { runVerifier, renderVerifierSummary, type VerifierReport } from '../verifier';
 
 // ---------------------------------------------------------------------------
 // Claude CLI stream-json event shapes
@@ -207,6 +209,24 @@ export class ClaudeAgentRunner implements AgentRunner {
         1, // turn 1 — Claude CLI handles its own multi-turn internally
         claudeConfig.maxTurns,
       );
+
+      // Repo brain — inject accumulated learnings as a preamble.
+      if (config.repoBrain.enabled) {
+        try {
+          await ensureLearningsExist(workspacePath, config.repoBrain.learningsPath);
+        } catch {
+          // best effort
+        }
+        const preamble = await buildLearningsPreamble(
+          workspacePath,
+          true,
+          config.repoBrain.maxInjectChars,
+          config.repoBrain.learningsPath,
+          config.repoBrain.learningsPrivatePath,
+        );
+        if (preamble) prompt = preamble + '\n' + prompt;
+      }
+
       if (previousMessages && previousMessages.length > 0) {
         prompt = buildResumePreamble(previousMessages) + '\n\n' + prompt;
         onUpdate({
@@ -288,6 +308,38 @@ export class ClaudeAgentRunner implements AgentRunner {
       }
     }
 
+    // 4c. Verifier — fresh-context critic between agent-done and PR-open.
+    let verifierReport: VerifierReport | null = null;
+    if (result.success && config.verifier.enabled) {
+      verifierReport = await runVerifier(issue, workspacePath, config, null);
+      if (!verifierReport) {
+        log.warn('Verifier failed to run, escalating');
+        await this.runAfterRunHook(config, workspacePath);
+        this.activeProcesses.delete(issue.id);
+        return {
+          success: false,
+          error: 'Verifier did not return a decision; escalating for human review.',
+        };
+      }
+      onUpdate({
+        kind: 'message',
+        role: 'system',
+        content: `Verifier decision: ${verifierReport.decision} (confidence ${(verifierReport.confidence * 100).toFixed(0)}%)`,
+      });
+      if (verifierReport.decision === 'request_revision') {
+        const summary = renderVerifierSummary(verifierReport);
+        await this.runAfterRunHook(config, workspacePath);
+        this.activeProcesses.delete(issue.id);
+        return {
+          success: false,
+          error: `Verifier requested revision:\n${summary}`,
+        };
+      }
+      if (verifierReport.decision === 'escalate') {
+        log.info('Verifier escalated, proceeding to PR with summary');
+      }
+    }
+
     // 5. If Claude succeeded, commit + push + create PR (post-processing)
     if (result.success) {
       try {
@@ -296,6 +348,7 @@ export class ClaudeAgentRunner implements AgentRunner {
           issue,
           config,
           onUpdate,
+          verifierReport,
         );
       } catch (err) {
         log.warn('Post-processing (commit/push/PR) failed', {
@@ -990,6 +1043,7 @@ export class ClaudeAgentRunner implements AgentRunner {
     issue: Issue,
     config: ServiceConfig,
     onUpdate: (event: CodexUpdateEvent) => void,
+    verifierReport: VerifierReport | null = null,
   ): Promise<void> {
     const log = logger.forIssue(issue.id, issue.identifier);
     const { apiKey, projectSlug } = config.tracker;
@@ -1092,9 +1146,10 @@ export class ClaudeAgentRunner implements AgentRunner {
               `**Issue:** ${issue.title}`,
               issue.description ? `\n**Description:** ${issue.description}` : '',
               ``,
+              verifierReport ? renderVerifierSummary(verifierReport) : '',
               `---`,
               `*Created automatically by Harmony Agent Orchestrator*`,
-            ].join('\n'),
+            ].filter(Boolean).join('\n'),
             head: branchName,
             base: 'main',
           }),
