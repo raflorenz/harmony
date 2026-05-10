@@ -159,6 +159,8 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
   const rawSideAgent = rawConfig.sideAgent as Record<string, unknown> | undefined
     ?? rawConfig.side_agent as Record<string, unknown> | undefined;
   const rawGuardrails = rawConfig.guardrails as Record<string, unknown> | undefined;
+  const rawRepoBrain = rawConfig.repoBrain as Record<string, unknown> | undefined
+    ?? rawConfig.repo_brain as Record<string, unknown> | undefined;
   const rawDecomposer = rawConfig.decomposer as Record<string, unknown> | undefined;
   const rawGrader = rawConfig.grader as Record<string, unknown> | undefined;
   const rawVerifier = rawConfig.verifier as Record<string, unknown> | undefined;
@@ -258,6 +260,17 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
     },
     sideAgent: resolveSideAgent(rawSideAgent),
     guardrails: resolveGuardrails(rawGuardrails),
+    repoBrain: {
+      enabled: rawRepoBrain?.enabled === true || rawRepoBrain?.enabled === 'true',
+      model: getStr(rawRepoBrain, 'model', DEFAULTS.repoBrain.model),
+      learningsPath: getStr(rawRepoBrain, 'learningsPath', DEFAULTS.repoBrain.learningsPath),
+      learningsPrivatePath: getStr(
+        rawRepoBrain,
+        'learningsPrivatePath',
+        DEFAULTS.repoBrain.learningsPrivatePath,
+      ),
+      maxInjectChars: getInt(rawRepoBrain, 'maxInjectChars', DEFAULTS.repoBrain.maxInjectChars),
+    },
     decomposer: {
       enabled: rawDecomposer?.enabled === true || rawDecomposer?.enabled === 'true',
       model: getStr(rawDecomposer, 'model', DEFAULTS.decomposer.model),

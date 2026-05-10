@@ -172,6 +172,12 @@ export interface GuardrailsConfig {
   onBreach: 'stop_and_escalate' | 'warn' | 'auto_split';
 }
 
+export interface RepoBrainConfigShape {
+  enabled: boolean;
+  model: string;
+  learningsPath: string;
+  learningsPrivatePath: string;
+  maxInjectChars: number;
 export interface GraderConfigShape {
   enabled: boolean;
   model: string;
@@ -201,6 +207,7 @@ export interface ServiceConfig {
   grader: GraderConfigShape;
   verifier: VerifierConfigShape;
   guardrails: GuardrailsConfig;
+  repoBrain: RepoBrainConfigShape;
   decomposer: DecomposerConfigShape;
 }
 
