@@ -75,6 +75,13 @@ guardrails:
     "src/db/migrations/**": "needs-migration-review"
   onBreach: stop_and_escalate
 
+# Feature decomposer — turns a feature description into a DAG of proposed
+# tickets. POST /api/v1/decompose to invoke; visit /decompose to use the UI.
+# No execution agent picks up tickets until a human approves the proposal.
+decomposer:
+  enabled: false
+  model: claude-sonnet-4-6
+  maxTickets: 5
 # Issue grader — pre-execution gate. Filters underspecified tickets before
 # they reach the execution agent. Failed tickets get a comment with blocking
 # questions and transition to harmony:needs-clarification.
