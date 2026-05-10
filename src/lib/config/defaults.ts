@@ -48,5 +48,17 @@ export const DEFAULTS = {
     enabled: false,
     model: '',
     maxTickets: 5,
+  grader: {
+    enabled: false,
+    model: '',
+    minPerScore: 3,
+    minOverall: 14,
+    rerunOnCommentUpdate: true,
+  },
+  verifier: {
+    enabled: false,
+    model: '',
+    maxRevisions: 2,
+    onNoTests: 'concern' as 'concern' | 'blocking',
   },
 };

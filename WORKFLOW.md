@@ -82,6 +82,25 @@ decomposer:
   enabled: false
   model: claude-sonnet-4-6
   maxTickets: 5
+# Issue grader — pre-execution gate. Filters underspecified tickets before
+# they reach the execution agent. Failed tickets get a comment with blocking
+# questions and transition to harmony:needs-clarification.
+grader:
+  enabled: false
+  model: claude-haiku-4-5-20251001
+  thresholds:
+    minPerScore: 3
+    minOverall: 14
+  rerunOnCommentUpdate: true
+
+# Verifier — post-execution gate. A fresh-context critic reviews the diff
+# against the spec before the orchestrator opens a PR. On request_revision
+# the run aborts and the ticket transitions to harmony:needs-revision.
+verifier:
+  enabled: false
+  model: claude-sonnet-4-6
+  maxRevisions: 2
+  onNoTests: concern   # | "blocking"
 
 server:
   port: 3000

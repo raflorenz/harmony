@@ -172,6 +172,21 @@ export interface GuardrailsConfig {
   onBreach: 'stop_and_escalate' | 'warn' | 'auto_split';
 }
 
+export interface GraderConfigShape {
+  enabled: boolean;
+  model: string;
+  minPerScore: number;
+  minOverall: number;
+  rerunOnCommentUpdate: boolean;
+}
+
+export interface VerifierConfigShape {
+  enabled: boolean;
+  model: string;
+  maxRevisions: number;
+  onNoTests: 'concern' | 'blocking';
+}
+
 /** Fully-typed service configuration (Section 6.4). */
 export interface ServiceConfig {
   tracker: TrackerConfig;
@@ -183,6 +198,8 @@ export interface ServiceConfig {
   claude: ClaudeConfig;
   server?: ServerConfig;
   sideAgent: SideAgentRuntimeConfig;
+  grader: GraderConfigShape;
+  verifier: VerifierConfigShape;
   guardrails: GuardrailsConfig;
   decomposer: DecomposerConfigShape;
 }
