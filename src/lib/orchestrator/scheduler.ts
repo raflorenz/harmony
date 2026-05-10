@@ -23,6 +23,10 @@ import { validateDispatchConfig } from '../config/resolver';
 export interface WorkspaceManager {
   createForIssue(identifier: string): Promise<{ path: string; workspaceKey: string; createdNow: boolean }>;
   removeWorkspace(identifier: string): Promise<void>;
+  /** Install guardrail-related hooks (pre-commit) into an existing repo workspace. */
+  installGuardrailHooks?(workspacePath: string): Promise<void>;
+  /** Update guardrails after a config reload. */
+  setGuardrails?(guardrails: import('../tracker/types').GuardrailsConfig | null): void;
 }
 
 export interface AgentRunner {
@@ -143,6 +147,7 @@ export class Scheduler {
     this.promptTemplate = promptTemplate;
     this.state.pollIntervalMs = config.polling.intervalMs;
     this.state.maxConcurrentAgents = config.agent.maxConcurrentAgents;
+    this.workspace.setGuardrails?.(config.guardrails);
     logger.info('Config reloaded', {
       poll_interval_ms: config.polling.intervalMs,
       max_concurrent_agents: config.agent.maxConcurrentAgents,

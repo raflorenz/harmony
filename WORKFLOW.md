@@ -52,6 +52,29 @@ codex:
   turn_timeout_ms: 3600000
   stall_timeout_ms: 300000
 
+# Side-agent runtime (used by grader, verifier, decomposer, repo-brain).
+# Set ANTHROPIC_API_KEY env var or hard-code apiKey here.
+sideAgent:
+  apiKey: $ANTHROPIC_API_KEY
+  defaultModel: claude-haiku-4-5-20251001
+
+# Guardrails — declarative limits enforced by the orchestrator.
+# blockedPaths: enforced via a pre-commit hook installed in the workspace.
+# maxFilesChanged / maxDiffLines / maxCostUsd: checked before opening a PR.
+# requireLabelForPaths: ticket must have label X when changes touch glob.
+# onBreach: stop_and_escalate (default), warn, or auto_split.
+guardrails:
+  maxFilesChanged: 25
+  maxDiffLines: 1500
+  maxCostUsd: 5.00
+  blockedPaths:
+    - "infra/**"
+    - "*.lock"
+    - ".github/workflows/**"
+  requireLabelForPaths:
+    "src/db/migrations/**": "needs-migration-review"
+  onBreach: stop_and_escalate
+
 server:
   port: 3000
 ---

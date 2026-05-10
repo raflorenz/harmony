@@ -6,8 +6,9 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { logger } from '../observability/logger';
 import { runHook } from './hooks';
+import { installBlockedPathsHook } from '../guardrails';
 import type { WorkspaceManager as IWorkspaceManager } from '../orchestrator/scheduler';
-import type { HooksConfig } from '../tracker/types';
+import type { HooksConfig, GuardrailsConfig } from '../tracker/types';
 
 /**
  * Sanitize an issue identifier for use as a workspace directory name.
@@ -39,10 +40,33 @@ function validatePathContainment(
 export class WorkspaceManagerImpl implements IWorkspaceManager {
   private readonly root: string;
   private readonly hooks: HooksConfig;
+  private guardrails: GuardrailsConfig | null;
 
-  constructor(root: string, hooks: HooksConfig) {
+  constructor(root: string, hooks: HooksConfig, guardrails: GuardrailsConfig | null = null) {
     this.root = path.resolve(root);
     this.hooks = hooks;
+    this.guardrails = guardrails;
+  }
+
+  /** Update guardrails (called from scheduler.reloadConfig). */
+  setGuardrails(guardrails: GuardrailsConfig | null): void {
+    this.guardrails = guardrails;
+  }
+
+  /**
+   * Install (or refresh) the blocked-paths pre-commit hook in an existing
+   * workspace's .git directory. Called by the agent runner after `git clone`.
+   */
+  async installGuardrailHooks(workspacePath: string): Promise<void> {
+    if (!this.guardrails) return;
+    try {
+      await installBlockedPathsHook(workspacePath, this.guardrails.blockedPaths);
+    } catch (err) {
+      logger.warn('Failed to install guardrail pre-commit hook', {
+        workspace: workspacePath,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   /**

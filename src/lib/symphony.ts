@@ -115,13 +115,14 @@ export async function startSymphony(
     _mockMode
       ? { afterCreate: null, beforeRun: null, afterRun: null, beforeRemove: null, timeoutMs: config.hooks.timeoutMs }
       : config.hooks,
+    _mockMode ? null : config.guardrails,
   );
 
   // 6. Create agent runner
   const agentRunner: AgentRunner = _mockMode
     ? new MockAgentRunner()
     : config.claude.enabled
-      ? new ClaudeAgentRunner(tracker)
+      ? new ClaudeAgentRunner(tracker, workspaceManager)
       : new AgentRunnerImpl(tracker);
 
   // 7. Apply mock-friendly config overrides

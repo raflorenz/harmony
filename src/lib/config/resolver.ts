@@ -156,6 +156,9 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
   const rawAgent = rawConfig.agent as Record<string, unknown> | undefined;
   const rawCodex = rawConfig.codex as Record<string, unknown> | undefined;
   const rawClaude = rawConfig.claude as Record<string, unknown> | undefined;
+  const rawSideAgent = rawConfig.sideAgent as Record<string, unknown> | undefined
+    ?? rawConfig.side_agent as Record<string, unknown> | undefined;
+  const rawGuardrails = rawConfig.guardrails as Record<string, unknown> | undefined;
 
   // -- tracker ---------------------------------------------------------------
   // Resolve apiKey: explicit value > $VAR in config > LINEAR_API_KEY env var
@@ -250,6 +253,52 @@ export function resolveConfig(rawConfig: Record<string, any>): ServiceConfig {
       maxTurns: getInt(rawClaude, 'maxTurns', DEFAULTS.claude.maxTurns),
       model: getStr(rawClaude, 'model', DEFAULTS.claude.model),
     },
+    sideAgent: resolveSideAgent(rawSideAgent),
+    guardrails: resolveGuardrails(rawGuardrails),
+  };
+}
+
+function resolveSideAgent(raw: Record<string, unknown> | undefined): ServiceConfig['sideAgent'] {
+  let apiKey = '';
+  if (typeof raw?.apiKey === 'string' || typeof raw?.api_key === 'string') {
+    apiKey = expandString(
+      (typeof raw?.apiKey === 'string' ? raw.apiKey : raw!.api_key) as string,
+    );
+  }
+  if (!apiKey) {
+    apiKey = process.env.ANTHROPIC_API_KEY ?? '';
+  }
+  return {
+    apiKey,
+    defaultModel: getStr(raw, 'defaultModel', DEFAULTS.sideAgent.defaultModel),
+    endpoint: getStr(raw, 'endpoint', DEFAULTS.sideAgent.endpoint),
+  };
+}
+
+function resolveGuardrails(raw: Record<string, unknown> | undefined): ServiceConfig['guardrails'] {
+  const rawRequireLabel = rawGet(raw, 'requireLabelForPaths') as Record<string, unknown> | undefined;
+  const requireLabelForPaths: Record<string, string> = {};
+  if (rawRequireLabel && typeof rawRequireLabel === 'object') {
+    for (const [key, val] of Object.entries(rawRequireLabel)) {
+      if (typeof val === 'string') requireLabelForPaths[key] = val;
+    }
+  }
+  const rawCost = rawGet(raw, 'maxCostUsd');
+  const maxCostUsd = typeof rawCost === 'number'
+    ? rawCost
+    : typeof rawCost === 'string' && Number.isFinite(parseFloat(rawCost))
+      ? parseFloat(rawCost)
+      : DEFAULTS.guardrails.maxCostUsd;
+  const onBreachRaw = getStr(raw, 'onBreach', DEFAULTS.guardrails.onBreach);
+  const onBreach: 'stop_and_escalate' | 'warn' | 'auto_split' =
+    onBreachRaw === 'warn' || onBreachRaw === 'auto_split' ? onBreachRaw : 'stop_and_escalate';
+  return {
+    maxFilesChanged: getInt(raw, 'maxFilesChanged', DEFAULTS.guardrails.maxFilesChanged),
+    maxDiffLines: getInt(raw, 'maxDiffLines', DEFAULTS.guardrails.maxDiffLines),
+    maxCostUsd,
+    blockedPaths: getStrArray(raw, 'blockedPaths', DEFAULTS.guardrails.blockedPaths),
+    requireLabelForPaths,
+    onBreach,
   };
 }
 
