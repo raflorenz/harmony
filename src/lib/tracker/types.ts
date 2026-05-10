@@ -156,6 +156,12 @@ export interface SideAgentRuntimeConfig {
   endpoint: string;
 }
 
+export interface DecomposerConfigShape {
+  enabled: boolean;
+  model: string;
+  maxTickets: number;
+}
+
 export interface GuardrailsConfig {
   maxFilesChanged: number;
   maxDiffLines: number;
@@ -172,6 +178,19 @@ export interface RepoBrainConfigShape {
   learningsPath: string;
   learningsPrivatePath: string;
   maxInjectChars: number;
+export interface GraderConfigShape {
+  enabled: boolean;
+  model: string;
+  minPerScore: number;
+  minOverall: number;
+  rerunOnCommentUpdate: boolean;
+}
+
+export interface VerifierConfigShape {
+  enabled: boolean;
+  model: string;
+  maxRevisions: number;
+  onNoTests: 'concern' | 'blocking';
 }
 
 /** Fully-typed service configuration (Section 6.4). */
@@ -185,8 +204,11 @@ export interface ServiceConfig {
   claude: ClaudeConfig;
   server?: ServerConfig;
   sideAgent: SideAgentRuntimeConfig;
+  grader: GraderConfigShape;
+  verifier: VerifierConfigShape;
   guardrails: GuardrailsConfig;
   repoBrain: RepoBrainConfigShape;
+  decomposer: DecomposerConfigShape;
 }
 
 // ---- 4.1.4 Workspace -------------------------------------------------------
