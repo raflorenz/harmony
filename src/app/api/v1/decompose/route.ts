@@ -62,17 +62,8 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  if (!config.sideAgent.apiKey) {
-    return NextResponse.json(
-      {
-        error: {
-          code: 'missing_api_key',
-          message: 'ANTHROPIC_API_KEY is not configured',
-        },
-      },
-      { status: 400 },
-    );
-  }
+  // No API key check — runSideAgent transparently falls back to the local
+  // Claude CLI (subscription OAuth) when sideAgent.apiKey is empty.
 
   const proposal = await runDecomposer(
     body.feature.trim(),

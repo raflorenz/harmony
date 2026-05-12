@@ -79,7 +79,7 @@ guardrails:
 # agent run. Capture mechanism on PR merge / verifier rejection runs as a
 # side-agent that proposes additions for human review (never writes blindly).
 repoBrain:
-  enabled: false
+  enabled: true
   model: claude-haiku-4-5-20251001
   learningsPath: ".harmony/learnings.md"
   learningsPrivatePath: ".harmony/learnings.private.md"
@@ -88,14 +88,14 @@ repoBrain:
 # tickets. POST /api/v1/decompose to invoke; visit /decompose to use the UI.
 # No execution agent picks up tickets until a human approves the proposal.
 decomposer:
-  enabled: false
+  enabled: true
   model: claude-sonnet-4-6
   maxTickets: 5
 # Issue grader — pre-execution gate. Filters underspecified tickets before
 # they reach the execution agent. Failed tickets get a comment with blocking
 # questions and transition to harmony:needs-clarification.
 grader:
-  enabled: false
+  enabled: true
   model: claude-haiku-4-5-20251001
   thresholds:
     minPerScore: 3
@@ -106,7 +106,7 @@ grader:
 # against the spec before the orchestrator opens a PR. On request_revision
 # the run aborts and the ticket transitions to harmony:needs-revision.
 verifier:
-  enabled: false
+  enabled: true
   model: claude-sonnet-4-6
   maxRevisions: 2
   onNoTests: concern   # | "blocking"

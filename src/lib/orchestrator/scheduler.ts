@@ -395,12 +395,20 @@ export class Scheduler {
         for (const issue of sorted) {
           if (availableSlots(this.state) <= 0) break;
           if (shouldDispatch(issue, this.state, this.config)) {
+            // Claim the issue BEFORE awaiting the grader. Otherwise a
+            // concurrent tick (e.g. one queued by triggerRefresh) can pass
+            // shouldDispatch and race a second grader+dispatch for the
+            // same issue while this one's grader is still running.
+            this.state.claimed.add(issue.id);
+
             // Grader gate: only dispatch when the grader approves.
             // gradeBeforeDispatch returns true when grader is disabled.
             const cleared = await this.gradeBeforeDispatch(issue);
             if (cleared) {
               this.dispatchIssue(issue, null);
             }
+            // If grader rejected, the claim stays so we don't re-grade
+            // until the human responds (matches existing behavior).
           }
         }
       }

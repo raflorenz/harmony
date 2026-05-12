@@ -7,6 +7,10 @@
 // whether to retry, escalate, or fall back.
 // ---------------------------------------------------------------------------
 
+import { spawn, execSync } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { logger } from '../observability/logger';
 import type {
   SideAgentConfig,
@@ -79,7 +83,8 @@ export async function runSideAgent<T>(
   const logCtx = { stage: request.stage, ticket: request.ticketId ?? null };
 
   if (!config.apiKey) {
-    return { ok: false, error: 'side-agent: ANTHROPIC_API_KEY is not configured' };
+    // Fall back to the locally-installed Claude CLI (uses subscription OAuth).
+    return runViaClaudeCli<T>(request, model, logCtx);
   }
 
   const body = {
@@ -147,4 +152,190 @@ export async function runSideAgent<T>(
   });
 
   return { ok: true, data: parsed, usage, raw: text };
+}
+
+// ---------------------------------------------------------------------------
+// Claude CLI fallback — used when no ANTHROPIC_API_KEY is configured. Runs
+// the locally-installed `claude` CLI as a one-shot subprocess so side-agent
+// calls bill against the user's Claude subscription via OAuth instead of an
+// API key.
+// ---------------------------------------------------------------------------
+
+let _claudeBinaryPath: string | null = null;
+
+function resolveClaudeBinary(): string {
+  if (_claudeBinaryPath) return _claudeBinaryPath;
+  try {
+    const cmd = process.platform === 'win32' ? 'where claude' : 'which claude';
+    const result = execSync(cmd, { encoding: 'utf-8', timeout: 5_000 }).trim();
+    if (result) {
+      _claudeBinaryPath = result.split('\n')[0].trim();
+      return _claudeBinaryPath;
+    }
+  } catch {
+    // not in PATH — fall through to known install locations
+  }
+  const home = os.homedir();
+  const candidates: string[] =
+    process.platform === 'win32'
+      ? [
+          path.join(home, '.local', 'bin', 'claude.exe'),
+          path.join(process.env.LOCALAPPDATA ?? '', 'Programs', 'claude-code', 'claude.exe'),
+        ]
+      : [path.join(home, '.local', 'bin', 'claude'), '/usr/local/bin/claude'];
+  for (const c of candidates) {
+    try {
+      if (fs.statSync(c).isFile()) {
+        _claudeBinaryPath = c;
+        return c;
+      }
+    } catch {
+      // try next
+    }
+  }
+  _claudeBinaryPath = 'claude';
+  return 'claude';
+}
+
+interface ClaudeCliResult {
+  type?: string;
+  subtype?: string;
+  is_error?: boolean;
+  result?: string;
+  cost_usd?: number;
+  total_cost_usd?: number;
+  duration_ms?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  usage?: { input_tokens?: number; output_tokens?: number };
+  message?: { content?: Array<{ type: string; text?: string }>; usage?: { input_tokens?: number; output_tokens?: number } };
+}
+
+function runViaClaudeCli<T>(
+  request: SideAgentRequest,
+  model: string,
+  logCtx: Record<string, unknown>,
+): Promise<SideAgentResponse<T>> {
+  return new Promise((resolve) => {
+    const binary = resolveClaudeBinary();
+    const args: string[] = [
+      '-p',
+      '--output-format', 'json',
+      '--system-prompt', request.system,
+      '--max-turns', '1',
+      '--dangerously-skip-permissions',
+    ];
+    if (model) {
+      args.push('--model', model);
+    }
+
+    const childEnv = { ...process.env };
+    // Avoid nested-session refusal
+    delete childEnv.CLAUDECODE;
+    delete childEnv.CLAUDE_CODE_ENTRYPOINT;
+
+    let child;
+    try {
+      child = spawn(binary, args, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: childEnv,
+      });
+    } catch (err) {
+      resolve({
+        ok: false,
+        error: `side-agent CLI spawn failed: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      return;
+    }
+
+    child.stdin?.write(request.user);
+    child.stdin?.end();
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+
+    child.on('error', (err) => {
+      resolve({
+        ok: false,
+        error: `side-agent CLI error: ${err.message}`,
+      });
+    });
+
+    child.on('close', (code) => {
+      if (code !== 0) {
+        logger.warn('side-agent CLI exited non-zero', {
+          ...logCtx,
+          code,
+          stderr_tail: stderr.slice(-400),
+        });
+        resolve({
+          ok: false,
+          error: `Claude CLI exited ${code}: ${stderr.slice(-300) || '(no stderr)'}`,
+        });
+        return;
+      }
+
+      let parsed: ClaudeCliResult;
+      try {
+        parsed = JSON.parse(stdout) as ClaudeCliResult;
+      } catch {
+        resolve({
+          ok: false,
+          error: `Claude CLI returned non-JSON: ${stdout.slice(0, 300)}`,
+        });
+        return;
+      }
+
+      if (parsed.is_error) {
+        resolve({
+          ok: false,
+          error: `Claude CLI returned error result: ${parsed.result ?? parsed.subtype ?? 'unknown'}`,
+        });
+        return;
+      }
+
+      const text =
+        typeof parsed.result === 'string'
+          ? parsed.result
+          : (parsed.message?.content ?? [])
+              .filter((b) => b.type === 'text' && typeof b.text === 'string')
+              .map((b) => b.text!)
+              .join('\n')
+              .trim();
+
+      const inputTokens =
+        parsed.input_tokens ?? parsed.usage?.input_tokens ?? parsed.message?.usage?.input_tokens ?? 0;
+      const outputTokens =
+        parsed.output_tokens ?? parsed.usage?.output_tokens ?? parsed.message?.usage?.output_tokens ?? 0;
+      const costUsd = parsed.total_cost_usd ?? parsed.cost_usd ?? 0;
+      const usage: SideAgentUsage = { inputTokens, outputTokens, costUsd };
+
+      const data = tryParseJson<T>(text);
+      if (data === null) {
+        resolve({
+          ok: false,
+          error: 'failed to parse JSON from Claude CLI output',
+          raw: text,
+          usage,
+        });
+        return;
+      }
+
+      logger.debug('side-agent CLI success', {
+        ...logCtx,
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        cost_usd: costUsd,
+      });
+
+      resolve({ ok: true, data, usage, raw: text });
+    });
+  });
 }

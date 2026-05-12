@@ -39,17 +39,32 @@ export function globToRegex(glob: string): RegExp {
   return new RegExp('^' + re + '$');
 }
 
+/**
+ * Mark untracked files as intent-to-add so they appear in `git diff` as
+ * new files. The agent is instructed not to commit, so its work shows up
+ * as a mix of working-tree edits and untracked files. The orchestrator's
+ * own `git add -A` at commit time still picks everything up.
+ */
+async function markUntrackedIntentToAdd(workspacePath: string): Promise<void> {
+  try {
+    await execInWorkspace('git add -N .', workspacePath, 10_000);
+  } catch {
+    // best-effort
+  }
+}
+
 /** Get list of changed files vs. main as `path\n` lines. Returns empty on git failure. */
 async function getChangedFiles(workspacePath: string): Promise<string[]> {
   try {
+    await markUntrackedIntentToAdd(workspacePath);
     const r = await execInWorkspace(
-      'git diff --name-only origin/main...HEAD',
+      'git diff --name-only origin/main',
       workspacePath,
       10_000,
     );
     if (r.exitCode !== 0) {
       // Fallback: working-tree changes only
-      const w = await execInWorkspace('git diff --name-only', workspacePath, 10_000);
+      const w = await execInWorkspace('git diff --name-only HEAD', workspacePath, 10_000);
       return w.stdout.trim().split('\n').filter(Boolean);
     }
     return r.stdout.trim().split('\n').filter(Boolean);
@@ -61,12 +76,13 @@ async function getChangedFiles(workspacePath: string): Promise<string[]> {
 /** Get total added+removed line count. Best-effort. */
 async function getDiffLineCount(workspacePath: string): Promise<number> {
   try {
+    await markUntrackedIntentToAdd(workspacePath);
     const r = await execInWorkspace(
-      'git diff --shortstat origin/main...HEAD',
+      'git diff --shortstat origin/main',
       workspacePath,
       10_000,
     );
-    const out = r.exitCode === 0 ? r.stdout : (await execInWorkspace('git diff --shortstat', workspacePath, 10_000)).stdout;
+    const out = r.exitCode === 0 ? r.stdout : (await execInWorkspace('git diff --shortstat HEAD', workspacePath, 10_000)).stdout;
     const m = out.match(/(\d+)\s+insertion[^,]*,?\s*(\d+)?\s*deletion?/);
     if (!m) return 0;
     return parseInt(m[1] ?? '0', 10) + parseInt(m[2] ?? '0', 10);

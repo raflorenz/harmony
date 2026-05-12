@@ -53,13 +53,22 @@ const MAX_DIFF_BYTES = 80_000;
 
 async function readDiff(workspacePath: string): Promise<string> {
   try {
+    // The agent is instructed not to commit; its work shows up as a mix of
+    // working-tree edits and untracked files. `git add -N .` marks untracked
+    // paths as intent-to-add so they appear in `git diff` as new files,
+    // without staging actual content. The orchestrator's own `git add -A`
+    // at commit time still picks everything up.
+    await execInWorkspace('git add -N .', workspacePath, 30_000);
+
+    // Diff working tree vs origin/main — captures committed, staged, and
+    // unstaged changes, including the new files just marked intent-to-add.
     const r = await execInWorkspace(
-      'git diff origin/main...HEAD',
+      'git diff origin/main',
       workspacePath,
       30_000,
     );
     if (r.exitCode === 0 && r.stdout.trim()) return truncate(r.stdout);
-    const w = await execInWorkspace('git diff', workspacePath, 30_000);
+    const w = await execInWorkspace('git diff HEAD', workspacePath, 30_000);
     return truncate(w.stdout);
   } catch {
     return '(unable to read diff)';
