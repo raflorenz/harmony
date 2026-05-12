@@ -50,10 +50,12 @@ export const DEFAULTS = {
     learningsPath: '.harmony/learnings.md',
     learningsPrivatePath: '.harmony/learnings.private.md',
     maxInjectChars: 8000,
+  },
   decomposer: {
     enabled: false,
     model: '',
     maxTickets: 5,
+  },
   grader: {
     enabled: false,
     model: '',
