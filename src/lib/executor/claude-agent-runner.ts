@@ -441,6 +441,9 @@ export class ClaudeAgentRunner implements AgentRunner {
 
     const branchName = `${BRANCH_PREFIX}/${issueIdentifier.replace(/[^A-Za-z0-9._-]/g, '-').toLowerCase()}`;
 
+    // Redacted clone URL for use in error messages — never expose the token.
+    const sanitizedCloneUrl = cloneUrl.replace(/x-access-token:[^@]+@/, 'x-access-token:***@');
+
     // Check if already cloned (workspace reuse on retry)
     const gitDirExists = await fileExists(path.join(workspacePath, '.git'));
 
@@ -451,15 +454,23 @@ export class ClaudeAgentRunner implements AgentRunner {
         content: `Cloning repository ${projectSlug}...`,
       });
 
-      const cloneResult = await execInWorkspace(
-        `git clone --depth=50 ${cloneUrl} .`,
-        workspacePath,
-        GIT_TIMEOUT_MS,
-      );
+      let cloneResult: { stdout: string; stderr: string; exitCode: number };
+      try {
+        cloneResult = await execInWorkspace(
+          `git clone --depth=50 ${cloneUrl} .`,
+          workspacePath,
+          GIT_TIMEOUT_MS,
+        );
+      } catch (err) {
+        // execInWorkspace rejects on timeout/spawn errors; the rejection message
+        // contains the full command string including the bearer token. Redact it.
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(msg.replaceAll(cloneUrl, sanitizedCloneUrl));
+      }
 
       if (cloneResult.exitCode !== 0) {
         throw new Error(
-          `git clone failed (exit ${cloneResult.exitCode}): ${cloneResult.stderr.slice(0, 500)}`,
+          `git clone failed (exit ${cloneResult.exitCode}): ${cloneResult.stderr.replaceAll(cloneUrl, sanitizedCloneUrl).slice(0, 500)}`,
         );
       }
     } else {
