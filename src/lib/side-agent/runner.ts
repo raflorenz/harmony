@@ -22,6 +22,7 @@ import type {
 const DEFAULT_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const DEFAULT_MAX_TOKENS = 4096;
 const DEFAULT_TEMPERATURE = 0.2;
+const SIDE_AGENT_TIMEOUT_MS = 120_000;
 
 // Approximate per-1M-token pricing for cost accounting. Updated occasionally;
 // the goal is "good enough for budgeting", not invoice-grade.
@@ -95,6 +96,9 @@ export async function runSideAgent<T>(
     messages: [{ role: 'user', content: request.user }],
   };
 
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), SIDE_AGENT_TIMEOUT_MS);
+
   let resp: Response;
   try {
     resp = await fetch(endpoint, {
@@ -105,11 +109,18 @@ export async function runSideAgent<T>(
         'content-type': 'application/json',
       },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    clearTimeout(timeoutHandle);
+    const isAbort = err instanceof DOMException && err.name === 'AbortError';
+    const msg = isAbort
+      ? `timed out after ${SIDE_AGENT_TIMEOUT_MS}ms`
+      : err instanceof Error ? err.message : String(err);
     logger.warn('side-agent network error', { ...logCtx, error: msg });
     return { ok: false, error: `network error: ${msg}` };
+  } finally {
+    clearTimeout(timeoutHandle);
   }
 
   let json: AnthropicMessageResponse;
