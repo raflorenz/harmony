@@ -214,6 +214,11 @@ export class Scheduler {
     const issue = candidates.find(c => c.id === issueId);
     if (!issue) return false;
 
+    // Grader gate — same as auto-dispatch path. Skipping it on manual-start
+    // lets unclear tickets reach the agent, which defeats the gate.
+    const cleared = await this.gradeBeforeDispatch(issue);
+    if (!cleared) return false;
+
     // Dispatch the issue
     this.dispatchIssue(issue, null);
     return true;

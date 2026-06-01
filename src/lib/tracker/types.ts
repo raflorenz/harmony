@@ -178,6 +178,8 @@ export interface RepoBrainConfigShape {
   learningsPath: string;
   learningsPrivatePath: string;
   maxInjectChars: number;
+}
+
 export interface GraderConfigShape {
   enabled: boolean;
   model: string;
